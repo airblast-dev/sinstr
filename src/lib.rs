@@ -208,7 +208,7 @@ const _: () = assert!(size_of::<Option<Repr>>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<Repr>>() >= align_of::<usize>());
 
 #[repr(transparent)]
-struct SinStr(Repr);
+pub struct SinStr(Repr);
 
 impl SinStr {
     pub fn new(s: &str) -> Option<Self> {
