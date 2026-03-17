@@ -63,7 +63,7 @@ struct Repr {
 impl Repr {
     pub fn is_inlined(&self) -> bool {
         let len = self.disc as usize;
-        len <= NICHE_MAX_INT
+        len > 0 && len <= NICHE_MAX_INT
     }
 
     pub fn is_heap(&self) -> bool {
