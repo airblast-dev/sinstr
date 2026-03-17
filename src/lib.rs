@@ -203,18 +203,20 @@ impl Drop for Repr {
     }
 }
 
+
+// Ensure Repr and Option<Repr> is NPO
 const _: () = assert!(size_of::<Repr>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<Repr>>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<Repr>>() >= align_of::<usize>());
 
 #[repr(transparent)]
-pub struct SinStr(Repr);
+pub struct SinStr(Option<Repr>);
 
 impl SinStr {
-    pub fn new(s: &str) -> Option<Self> {
+    pub fn new(s: &str) -> Self {
         let len = s.len();
         if len == 0 {
-            return None;
+            return Self(None);
         }
 
         if NICHE_MAX_INT >= len {
@@ -223,7 +225,7 @@ impl SinStr {
                 buf[i] = MaybeUninit::new(b);
             }
             unsafe {
-                Some(Self(Repr {
+                Self(Some(Repr {
                     _align: [],
                     disc: transmute::<u8, discriminant::DiscriminantValues>(len as u8),
                     data_or_partial_ptr: buf,
@@ -252,10 +254,31 @@ impl SinStr {
             // The discriminant byte will be the high byte of the pointer.
             // Heap pointers on most architectures have high byte > NICHE_MAX_INT,
             // ensuring is_heap() returns true.
-            unsafe { Some(transmute::<usize, SinStr>(ptr.as_ptr().expose_provenance())) }
+            unsafe {
+                Self(Some(transmute::<usize, Repr>(
+                    ptr.as_ptr().expose_provenance(),
+                )))
+            }
         }
     }
 }
 
+// Ensure SinStr and Option<SinStr> is NPO
+const _: () = assert!(size_of::<SinStr>() == size_of::<usize>());
+const _: () = assert!(size_of::<Option<SinStr>>() == size_of::<usize>());
+const _: () = assert!(size_of::<Option<SinStr>>() >= align_of::<usize>());
+
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::SinStr;
+
+    #[allow(unused)]
+    enum MyEnum {
+        A(SinStr),
+        B(u32),
+    }
+
+    // Ensure that the compiler is using the niches for enums. 
+    // This isn't a safety requirement or guarantee we provide so putting this in the tests is fine.
+    const _: () = assert!(size_of::<MyEnum>() == size_of::<SinStr>());
+}
