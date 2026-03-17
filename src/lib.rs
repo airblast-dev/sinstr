@@ -242,6 +242,7 @@ impl SinStr {
                 handle_alloc_error(layout)
             };
 
+            // SAFETY: We allocated for a usize + len and the pointer is properly aligned.
             unsafe {
                 ptr.cast::<usize>().write(len);
                 ptr.add(size_of::<usize>())
