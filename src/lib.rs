@@ -1,3 +1,48 @@
+//! # SinStr - Compact String with Small String Optimization
+//!
+//! A compact string type that fits in a single `usize` using Small String Optimization (SSO).
+//!
+//! ## Key Properties
+//!
+//! - **Size**: Exactly `size_of::<usize>()` bytes (8 bytes on 64-bit)
+//! - **Inline capacity**: Platform-dependent (7 bytes on 64-bit, 3 on 32-bit, 1 on 16-bit)
+//! - **Zero-cost**: No heap allocation for short strings
+//! - **Niche-optimized**: `Option<SinStr>` is the same size as `SinStr`
+//!
+//! ## Memory Layout
+//!
+//! Uses the low bits of a `usize` to store the discriminant. Heap pointers are aligned to
+//! `align_of::<usize>()` (8 on 64-bit), so low bits are always zero for valid heap pointers.
+//!
+//! ### Inline (length <= NICHE_MAX_INT)
+//! - Discriminant byte: length (1..=NICHE_MAX_INT)
+//! - Remaining bytes: string data
+//!
+//! ### Heap (length > NICHE_MAX_INT)
+//! - Full pointer stored
+//! - Length stored at `ptr - 1` (before string data)
+//! - High byte acts as heap discriminant (non-zero)
+//!
+//! ## Platform Differences
+//!
+//! | Platform | NICHE_BITS | Max Inline |
+//! |----------|------------|------------|
+//! | 64-bit   | 3          | 7 bytes    |
+//! | 32-bit   | 2          | 3 bytes    |
+//! | 16-bit   | 1          | 1 byte     |
+//!
+//! ## Example
+//!
+//! ```
+//! use sinstr::SinStr;
+//!
+//! let small = SinStr::new("hi");  // Inline on 64-bit
+//! let large = SinStr::new("hello world"); // Heap
+//!
+//! assert!(small.is_inlined());
+//! assert!(large.is_heap());
+//! ```
+
 use core::str;
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
@@ -317,7 +362,7 @@ mod tests {
         B(u32),
     }
 
-    // Ensure that the compiler is using the niches for enums. 
+    // Ensure that the compiler is using the niches for enums.
     // This isn't a safety requirement or guarantee we provide so putting this in the tests is fine.
     const _: () = assert!(size_of::<MyEnum>() == size_of::<SinStr>());
 
