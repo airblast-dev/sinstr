@@ -261,6 +261,45 @@ impl SinStr {
             }
         }
     }
+
+    pub fn len(&self) -> usize {
+        match &self.0 {
+            None => 0,
+            Some(repr) => repr.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn as_str(&self) -> &str {
+        match &self.0 {
+            None => "",
+            Some(repr) => repr.as_str(),
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        match &self.0 {
+            None => b"",
+            Some(repr) => repr.as_bytes(),
+        }
+    }
+
+    pub fn is_inlined(&self) -> bool {
+        match &self.0 {
+            None => false,
+            Some(repr) => repr.is_inlined(),
+        }
+    }
+
+    pub fn is_heap(&self) -> bool {
+        match &self.0 {
+            None => false,
+            Some(repr) => repr.is_heap(),
+        }
+    }
 }
 
 // Ensure SinStr and Option<SinStr> is NPO
