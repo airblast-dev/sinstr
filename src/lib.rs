@@ -16,6 +16,16 @@ struct HeapRepr {
     // trailing bytes
 }
 
+impl HeapRepr {
+    fn as_bytes(&self) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(&self.data as _, self.len) }
+    }
+
+    fn as_str(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(self.as_bytes()) }
+    }
+}
+
 #[repr(C)]
 struct InlinedRepr {
     #[cfg(target_endian = "big")]
@@ -96,7 +106,7 @@ impl Repr {
         if self.is_inlined() {
             self.get_inlined().as_bytes()
         } else {
-            todo!()
+            unsafe { self.get_heap() }.as_bytes()
         }
     }
 
@@ -104,7 +114,7 @@ impl Repr {
         if self.is_inlined() {
             self.get_inlined().as_str()
         } else {
-            todo!()
+            unsafe { self.get_heap() }.as_str()
         }
     }
 }
