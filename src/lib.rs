@@ -264,46 +264,69 @@ impl SinStr {
         }
 
         if NICHE_MAX_INT >= len {
-            let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
-            for (i, &b) in s.as_bytes().iter().enumerate() {
-                buf[i] = MaybeUninit::new(b);
-            }
-            unsafe {
-                Self(Some(Repr {
-                    _align: [],
-                    disc: transmute::<u8, discriminant::DiscriminantValues>(len as u8),
-                    data_or_partial_ptr: buf,
-                }))
-            }
+            unsafe { Self::new_inline(s) }
         } else {
-            let total_size = size_of::<usize>()
-                .checked_add(len)
-                .expect("string too large");
-            let layout = Layout::from_size_align(total_size, align_of::<usize>()).unwrap();
+            unsafe { Self::new_heap(s) }
+        }
+    }
 
-            // SAFETY: layout size > 0 because len > NICHE_MAX_INT > 0
-            let Some(ptr) = NonNull::new(unsafe { alloc(layout) }) else {
-                handle_alloc_error(layout)
-            };
+    /// Creates a new `SinStr` that stores data in the `SinStr` directly.
+    ///
+    /// # Safety
+    ///
+    /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`].
+    const unsafe fn new_inline(s: &str) -> Self {
+        let len = s.len();
+        let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
+        let mut i = 0;
+        while i < len {
+            buf[i] =  MaybeUninit::new(s.as_bytes()[i]);
+            i += 1;
+        }
+        unsafe {
+            Self(Some(Repr {
+                _align: [],
+                disc: transmute::<u8, discriminant::DiscriminantValues>(len as u8),
+                data_or_partial_ptr: buf,
+            }))
+        }
+    }
 
-            // SAFETY: We allocated for a usize + len and the pointer is properly aligned.
-            unsafe {
-                ptr.cast::<usize>().write(len);
-                ptr.add(size_of::<usize>())
-                    .cast::<MaybeUninit<u8>>()
-                    .as_ptr()
-                    .copy_from_nonoverlapping(s.as_bytes().as_ptr() as _, len);
-            }
+    /// Creates a new `SinStr` that stores data on the heap.
+    ///
+    /// # Safety
+    ///
+    /// The length of the provided string must be greater than [`NICHE_MAX_INT`].
+    unsafe fn new_heap(s: &str) -> Self {
+        let len = s.len();
+        debug_assert!(len > NICHE_MAX_INT);
+        let total_size = size_of::<usize>()
+            .checked_add(len)
+            .expect("string too large");
+        let layout = Layout::from_size_align(total_size, align_of::<usize>()).unwrap();
 
-            // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
-            // The discriminant byte will be the high byte of the pointer.
-            // Heap pointers on most architectures have high byte > NICHE_MAX_INT,
-            // ensuring is_heap() returns true.
-            unsafe {
-                Self(Some(transmute::<usize, Repr>(
-                    ptr.as_ptr().expose_provenance(),
-                )))
-            }
+        // SAFETY: layout size > 0 because len > NICHE_MAX_INT > 0
+        let Some(ptr) = NonNull::new(unsafe { alloc(layout) }) else {
+            handle_alloc_error(layout)
+        };
+
+        // SAFETY: We allocated for a usize + len and the pointer is properly aligned.
+        unsafe {
+            ptr.cast::<usize>().write(len);
+            ptr.add(size_of::<usize>())
+                .cast::<MaybeUninit<u8>>()
+                .as_ptr()
+                .copy_from_nonoverlapping(s.as_bytes().as_ptr() as _, len);
+        }
+
+        // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
+        // The discriminant byte will be the high byte of the pointer.
+        // Heap pointers on most architectures have high byte > NICHE_MAX_INT,
+        // ensuring is_heap() returns true.
+        unsafe {
+            Self(Some(transmute::<usize, Repr>(
+                ptr.as_ptr().expose_provenance(),
+            )))
         }
     }
 
