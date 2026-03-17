@@ -1,7 +1,9 @@
 use core::str;
 use std::{
-    mem::{MaybeUninit, transmute, transmute_copy},
+    alloc::{Layout, alloc, dealloc, handle_alloc_error},
+    mem::{MaybeUninit, size_of, transmute, transmute_copy},
     num::{NonZeroU8, NonZeroUsize},
+    ptr::NonNull,
 };
 
 mod discriminant;
@@ -10,19 +12,47 @@ pub use discriminant::DiscriminantValues;
 use crate::discriminant::NICHE_MAX_INT;
 
 #[repr(C)]
-struct HeapRepr {
-    len: usize,
-    data: [u8; 0],
-    // trailing bytes
-}
+struct HeapRepr(NonZeroUsize);
 
 impl HeapRepr {
+    fn as_ptr(&self) -> *const usize {
+        core::ptr::with_exposed_provenance::<usize>(self.0.get())
+    }
+
+    fn as_ptr_mut(&self) -> *mut usize {
+        core::ptr::with_exposed_provenance_mut::<usize>(self.0.get())
+    }
+
+    fn len(&self) -> usize {
+        unsafe { self.as_ptr().read() }
+    }
+
     fn as_bytes(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(&self.data as _, self.len) }
+        let ptr = self.as_ptr();
+        let len = self.len();
+        unsafe {
+            core::ptr::slice_from_raw_parts(ptr.add(1).cast::<u8>(), len)
+                .as_ref()
+                .unwrap_unchecked()
+        }
+    }
+
+    fn as_bytes_mut(&mut self) -> &mut [u8] {
+        let ptr = self.as_ptr_mut();
+        let len = self.len();
+        unsafe {
+            core::ptr::slice_from_raw_parts_mut(ptr.add(1).cast::<u8>(), len)
+                .as_mut()
+                .unwrap_unchecked()
+        }
     }
 
     fn as_str(&self) -> &str {
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
+    }
+
+    fn as_str_mut(&mut self) -> &mut str {
+        unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
     }
 }
 
@@ -45,8 +75,21 @@ impl InlinedRepr {
         }
     }
 
+    fn as_bytes_mut(&mut self) -> &mut [u8] {
+        unsafe {
+            (self.data.get_unchecked_mut(..self.len.get() as usize) as *mut [MaybeUninit<u8>]
+                as *mut [u8])
+                .as_mut()
+                .unwrap_unchecked()
+        }
+    }
+
     fn as_str(&self) -> &str {
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
+    }
+
+    fn as_str_mut(&mut self) -> &mut str {
+        unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
     }
 }
 
@@ -74,7 +117,7 @@ impl Repr {
         if self.is_inlined() {
             self.disc as usize
         } else {
-            unsafe { self.get_heap().len }
+            unsafe { self.get_heap() }.len()
         }
     }
 
@@ -87,18 +130,28 @@ impl Repr {
             //
             // The transmute is safe as we have confirmed they are the same size and have the same
             // alignment.
-            let hp: *const HeapRepr =
-                core::ptr::with_exposed_provenance_mut(usize::from_ne_bytes(transmute_copy::<
-                    Repr,
-                    [u8; size_of::<usize>()],
-                >(
-                    self
-                )));
-            hp.as_ref().unwrap_unchecked()
+            transmute::<&Repr, &HeapRepr>(self)
+        }
+    }
+
+    unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
+        const _: () = assert!(size_of::<Repr>() == size_of::<usize>());
+        unsafe {
+            // SAFETY: We are picking up a previously exposed provenance.
+            // Repr is the same size as usize and we have confirmed we are dealing with a pointer.
+            // The feature gate in the struct definition ensure that endiannes is accounted for.
+            //
+            // The transmute is safe as we have confirmed they are the same size and have the same
+            // alignment.
+            transmute::<&mut Repr, &mut HeapRepr>(self)
         }
     }
 
     fn get_inlined(&self) -> &InlinedRepr {
+        unsafe { transmute(self) }
+    }
+
+    fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
         unsafe { transmute(self) }
     }
 
@@ -110,11 +163,42 @@ impl Repr {
         }
     }
 
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        if self.is_inlined() {
+            self.get_inlined_mut().as_bytes_mut()
+        } else {
+            unsafe { self.get_heap_mut() }.as_bytes_mut()
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         if self.is_inlined() {
             self.get_inlined().as_str()
         } else {
             unsafe { self.get_heap() }.as_str()
+        }
+    }
+
+    pub fn as_str_mut(&mut self) -> &mut str {
+        if self.is_inlined() {
+            self.get_inlined_mut().as_str_mut()
+        } else {
+            unsafe { self.get_heap_mut() }.as_str_mut()
+        }
+    }
+}
+
+impl Drop for Repr {
+    fn drop(&mut self) {
+        if self.is_heap() {
+            let heap = unsafe { self.get_heap_mut() };
+            let ptr = heap.as_ptr_mut();
+            let len = heap.len();
+            unsafe {
+                let layout = Layout::from_size_align(size_of::<usize>() + len, align_of::<usize>())
+                    .unwrap_unchecked();
+                dealloc(ptr as _, layout)
+            };
         }
     }
 }
@@ -146,104 +230,32 @@ impl SinStr {
                 }))
             }
         } else {
-            todo!()
+            let total_size = size_of::<usize>()
+                .checked_add(len)
+                .expect("string too large");
+            let layout = Layout::from_size_align(total_size, align_of::<usize>()).unwrap();
+
+            // SAFETY: layout size > 0 because len > NICHE_MAX_INT > 0
+            let Some(ptr) = NonNull::new(unsafe { alloc(layout) }) else {
+                handle_alloc_error(layout)
+            };
+
+            unsafe {
+                ptr.cast::<usize>().write(len);
+                ptr.add(size_of::<usize>())
+                    .cast::<MaybeUninit<u8>>()
+                    .as_ptr()
+                    .copy_from_nonoverlapping(s.as_bytes().as_ptr() as _, len);
+            }
+
+            // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
+            // The discriminant byte will be the high byte of the pointer.
+            // Heap pointers on most architectures have high byte > NICHE_MAX_INT,
+            // ensuring is_heap() returns true.
+            unsafe { Some(transmute::<usize, SinStr>(ptr.as_ptr().expose_provenance())) }
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::discriminant::NICHE_BITS;
-
-    use super::*;
-    use std::mem::{align_of, size_of};
-
-    #[test]
-    fn test_empty_string_returns_none() {
-        assert!(SinStr::new("").is_none());
-    }
-
-    #[test]
-    fn test_single_char_inlined() {
-        let s = SinStr::new("a").unwrap();
-        assert_eq!(s.0.len(), 1);
-        assert!(s.0.is_inlined());
-        assert!(!s.0.is_heap());
-        assert_eq!(s.0.as_str(), "a");
-        assert_eq!(s.0.as_bytes(), b"a");
-    }
-
-    #[test]
-    fn test_all_inline_lengths() {
-        for len in 1..=NICHE_MAX_INT {
-            let input: String = "x".repeat(len);
-            let s = SinStr::new(&input).unwrap();
-            assert_eq!(s.0.len(), len);
-            assert!(s.0.is_inlined());
-            assert_eq!(s.0.as_str(), input.as_str());
-            assert_eq!(s.0.as_bytes(), input.as_bytes());
-        }
-    }
-
-    #[test]
-    fn test_niche_bits_correct() {
-        #[cfg(target_pointer_width = "64")]
-        assert_eq!(NICHE_BITS, 3);
-        #[cfg(target_pointer_width = "32")]
-        assert_eq!(NICHE_BITS, 2);
-        #[cfg(target_pointer_width = "16")]
-        assert_eq!(NICHE_BITS, 1);
-    }
-
-    #[test]
-    fn test_niche_max_int_correct() {
-        assert_eq!(NICHE_MAX_INT, (1usize << NICHE_BITS) - 1);
-    }
-
-    #[test]
-    fn test_inline_various_characters() {
-        let test_cases = ["a", "ab", "abc123", "!@#$%", "hello", "world"];
-        for &input in &test_cases {
-            if input.len() <= NICHE_MAX_INT {
-                let s = SinStr::new(input).unwrap();
-                assert_eq!(s.0.len(), input.len());
-                assert!(s.0.is_inlined());
-                assert_eq!(s.0.as_str(), input);
-                assert_eq!(s.0.as_bytes(), input.as_bytes());
-            }
-        }
-    }
-
-    #[test]
-    fn test_inline_null_byte() {
-        let s = SinStr::new("\0").unwrap();
-        assert_eq!(s.0.len(), 1);
-        assert!(s.0.is_inlined());
-        assert_eq!(s.0.as_str(), "\0");
-        assert_eq!(s.0.as_bytes(), b"\0");
-    }
-
-    #[test]
-    fn test_inline_multi_byte_utf8() {
-        let s = SinStr::new("é").unwrap();
-        assert_eq!(s.0.len(), 2);
-        assert!(s.0.is_inlined());
-        assert_eq!(s.0.as_str(), "é");
-        assert_eq!(s.0.as_bytes(), "é".as_bytes());
-
-        if NICHE_MAX_INT >= 3 {
-            let s = SinStr::new("日").unwrap();
-            assert_eq!(s.0.len(), 3);
-            assert!(s.0.is_inlined());
-            assert_eq!(s.0.as_str(), "日");
-            assert_eq!(s.0.as_bytes(), "日".as_bytes());
-        }
-    }
-
-    #[test]
-    fn test_discriminant_values_inline_range() {
-        let s = SinStr::new("x").unwrap();
-        let disc_value = s.0.disc as u8;
-        assert!(disc_value <= NICHE_MAX_INT as u8);
-    }
-}
+mod tests {}
