@@ -203,7 +203,6 @@ impl Drop for Repr {
     }
 }
 
-
 // Ensure Repr and Option<Repr> is NPO
 const _: () = assert!(size_of::<Repr>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<Repr>>() == size_of::<usize>());
@@ -321,4 +320,99 @@ mod tests {
     // Ensure that the compiler is using the niches for enums. 
     // This isn't a safety requirement or guarantee we provide so putting this in the tests is fine.
     const _: () = assert!(size_of::<MyEnum>() == size_of::<SinStr>());
+
+    #[test]
+    fn test_empty_string() {
+        let s = SinStr::new("");
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.as_str(), "");
+        assert_eq!(s.as_bytes(), b"");
+        assert!(!s.is_inlined());
+        assert!(!s.is_heap());
+    }
+
+    #[test]
+    fn test_inline_string() {
+        use crate::discriminant::NICHE_MAX_INT;
+
+        // Length 1 is always inline on all platforms
+        let s = SinStr::new("a");
+        assert!(!s.is_empty());
+        assert_eq!(s.len(), 1);
+        assert_eq!(s.as_str(), "a");
+        assert_eq!(s.as_bytes(), b"a");
+        assert!(s.is_inlined());
+        assert!(!s.is_heap());
+
+        // Length 2 is inline on 32-bit and 64-bit, heap on 16-bit
+        if NICHE_MAX_INT >= 2 {
+            let s = SinStr::new("ab");
+            assert_eq!(s.len(), 2);
+            assert_eq!(s.as_str(), "ab");
+            assert!(s.is_inlined());
+        }
+
+        // Length 3 is inline on 64-bit only
+        if NICHE_MAX_INT >= 3 {
+            let s = SinStr::new("abc");
+            assert_eq!(s.len(), 3);
+            assert_eq!(s.as_str(), "abc");
+            assert_eq!(s.as_bytes(), b"abc");
+            assert!(s.is_inlined());
+        }
+
+        // Max inline length for this platform
+        let max_inline = "x".repeat(NICHE_MAX_INT);
+        let s = SinStr::new(&max_inline);
+        assert_eq!(s.len(), NICHE_MAX_INT);
+        assert_eq!(s.as_str(), max_inline);
+        assert_eq!(s.as_bytes(), max_inline.as_bytes());
+        assert!(s.is_inlined());
+        assert!(!s.is_heap());
+    }
+
+    #[test]
+    fn test_heap_string() {
+        use crate::discriminant::NICHE_MAX_INT;
+
+        // On 16-bit: NICHE_MAX_INT = 1, so length 2 is heap
+        // On 32-bit: NICHE_MAX_INT = 3, so length 4 is heap
+        // On 64-bit: NICHE_MAX_INT = 7, so length 8 is heap
+        let first_heap = "x".repeat(NICHE_MAX_INT + 1);
+        let s = SinStr::new(&first_heap);
+        assert!(!s.is_empty());
+        assert_eq!(s.len(), NICHE_MAX_INT + 1);
+        assert_eq!(s.as_str(), first_heap);
+        assert_eq!(s.as_bytes(), first_heap.as_bytes());
+        assert!(!s.is_inlined());
+        assert!(s.is_heap());
+
+        // Test length 2 on 16-bit (which is heap)
+        if NICHE_MAX_INT < 2 {
+            let s = SinStr::new("ab");
+            assert_eq!(s.len(), 2);
+            assert_eq!(s.as_str(), "ab");
+            assert!(!s.is_inlined());
+            assert!(s.is_heap());
+        }
+
+        // Test length 3 on 16-bit and 32-bit (which is heap on those platforms)
+        if NICHE_MAX_INT < 3 {
+            let s = SinStr::new("abc");
+            assert_eq!(s.len(), 3);
+            assert_eq!(s.as_str(), "abc");
+            assert!(!s.is_inlined());
+            assert!(s.is_heap());
+        }
+
+        // Large heap allocation (works on all platforms)
+        let large = "x".repeat(100);
+        let s = SinStr::new(&large);
+        assert_eq!(s.len(), 100);
+        assert_eq!(s.as_str(), large);
+        assert_eq!(s.as_bytes(), large.as_bytes());
+        assert!(!s.is_inlined());
+        assert!(s.is_heap());
+    }
 }
