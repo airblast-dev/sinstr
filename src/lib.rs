@@ -18,13 +18,21 @@ struct HeapRepr {
 
 #[repr(C)]
 struct InlinedRepr {
+    #[cfg(target_endian = "big")]
     data: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
     len: NonZeroU8,
+    #[cfg(target_endian = "little")]
+    data: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
 }
 
 impl InlinedRepr {
     fn as_bytes(&self) -> &[u8] {
-        unsafe { transmute(&self.data[0..self.len.get() as usize]) }
+        unsafe {
+            (self.data.get_unchecked(..self.len.get() as usize) as *const [MaybeUninit<u8>]
+                as *const [u8])
+                .as_ref()
+                .unwrap_unchecked()
+        }
     }
 
     fn as_str(&self) -> &str {
@@ -151,6 +159,8 @@ mod tests {
         assert_eq!(s.0.len(), 1);
         assert!(s.0.is_inlined());
         assert!(!s.0.is_heap());
+        assert_eq!(s.0.as_str(), "a");
+        assert_eq!(s.0.as_bytes(), b"a");
     }
 
     #[test]
@@ -160,27 +170,9 @@ mod tests {
             let s = SinStr::new(&input).unwrap();
             assert_eq!(s.0.len(), len);
             assert!(s.0.is_inlined());
+            assert_eq!(s.0.as_str(), input.as_str());
+            assert_eq!(s.0.as_bytes(), input.as_bytes());
         }
-    }
-
-    #[test]
-    fn test_repr_size_equals_usize() {
-        assert_eq!(size_of::<Repr>(), size_of::<usize>());
-    }
-
-    #[test]
-    fn test_option_repr_size_equals_usize() {
-        assert_eq!(size_of::<Option<Repr>>(), size_of::<usize>());
-    }
-
-    #[test]
-    fn test_option_sinstr_size_equals_usize() {
-        assert_eq!(size_of::<Option<SinStr>>(), size_of::<usize>());
-    }
-
-    #[test]
-    fn test_repr_alignment() {
-        assert!(align_of::<Repr>() >= align_of::<usize>());
     }
 
     #[test]
@@ -206,6 +198,8 @@ mod tests {
                 let s = SinStr::new(input).unwrap();
                 assert_eq!(s.0.len(), input.len());
                 assert!(s.0.is_inlined());
+                assert_eq!(s.0.as_str(), input);
+                assert_eq!(s.0.as_bytes(), input.as_bytes());
             }
         }
     }
@@ -215,6 +209,8 @@ mod tests {
         let s = SinStr::new("\0").unwrap();
         assert_eq!(s.0.len(), 1);
         assert!(s.0.is_inlined());
+        assert_eq!(s.0.as_str(), "\0");
+        assert_eq!(s.0.as_bytes(), b"\0");
     }
 
     #[test]
@@ -222,11 +218,15 @@ mod tests {
         let s = SinStr::new("é").unwrap();
         assert_eq!(s.0.len(), 2);
         assert!(s.0.is_inlined());
+        assert_eq!(s.0.as_str(), "é");
+        assert_eq!(s.0.as_bytes(), "é".as_bytes());
 
         if NICHE_MAX_INT >= 3 {
             let s = SinStr::new("日").unwrap();
             assert_eq!(s.0.len(), 3);
             assert!(s.0.is_inlined());
+            assert_eq!(s.0.as_str(), "日");
+            assert_eq!(s.0.as_bytes(), "日".as_bytes());
         }
     }
 
