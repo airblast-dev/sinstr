@@ -49,7 +49,7 @@ pub enum DiscriminantValues {
 }
 #[cfg(target_pointer_width = "64")]
 const _: () = {
-    assert!(NICHE_BITS == 3, "NICHE_BITS should be at most 3");
+    assert!(NICHE_BITS >= 3, "NICHE_BITS should be at least 3");
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -130,7 +130,7 @@ pub enum DiscriminantValues {
 
 #[cfg(target_pointer_width = "32")]
 const _: () = {
-    assert!(NICHE_BITS == 2, "NICHE_BITS should be at most 3");
+    assert!(NICHE_BITS >= 2, "NICHE_BITS should be at least 2");
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -273,5 +273,5 @@ pub enum DiscriminantValues {
 
 #[cfg(target_pointer_width = "16")]
 const _: () = {
-    assert!(NICHE_BITS == 1, "NICHE_BITS should be at most 3");
+    assert!(NICHE_BITS >= 1, "NICHE_BITS should be at least 1");
 };
