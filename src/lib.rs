@@ -166,7 +166,7 @@ impl Repr {
         }
     }
 
-    unsafe fn get_heap(&self) -> &HeapRepr {
+    pub unsafe fn get_heap(&self) -> &HeapRepr {
         const _: () = assert!(size_of::<Repr>() == size_of::<usize>());
         unsafe {
             // SAFETY: We are picking up a previously exposed provenance.
@@ -192,11 +192,11 @@ impl Repr {
         }
     }
 
-    fn get_inlined(&self) -> &InlinedRepr {
+    pub const fn get_inlined(&self) -> &InlinedRepr {
         unsafe { transmute(self) }
     }
 
-    fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
+    pub const fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
         unsafe { transmute(self) }
     }
 
