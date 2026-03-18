@@ -126,8 +126,10 @@ impl InnerSinStr {
         }
 
         Some(if NICHE_MAX_INT >= len {
+            // SAFETY: we have ensured `s` fits in an inline string
             unsafe { Self::new_inline(s) }
         } else {
+            // SAFETY: we have ensured `s` does not fit in an inline string
             unsafe { Self::new_heap(s) }
         })
     }
