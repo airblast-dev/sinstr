@@ -277,12 +277,15 @@ impl SinStr {
     /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`].
     const unsafe fn new_inline(s: &str) -> Self {
         let len = s.len();
+        debug_assert!(len <= NICHE_MAX_INT);
         let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
         let mut i = 0;
         while i < len {
-            buf[i] =  MaybeUninit::new(s.as_bytes()[i]);
+            buf[i] = MaybeUninit::new(s.as_bytes()[i]);
             i += 1;
         }
+
+        // SAFETY: len is less than NICHE_MAX_INT and all versions of DiscriminantValues have variants with that value.
         unsafe {
             Self(Some(Repr {
                 _align: [],
