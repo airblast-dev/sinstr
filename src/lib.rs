@@ -45,8 +45,8 @@
 
 use core::str;
 use std::{
-    alloc::{Layout, alloc, dealloc, handle_alloc_error},
-    mem::{MaybeUninit, size_of, transmute},
+    alloc::{alloc, dealloc, handle_alloc_error, Layout},
+    mem::{size_of, transmute, MaybeUninit},
     num::{NonZeroU8, NonZeroUsize},
     ptr::NonNull,
 };
@@ -57,52 +57,52 @@ pub use discriminant::DiscriminantValues;
 use crate::discriminant::NICHE_MAX_INT;
 
 #[repr(C)]
-struct HeapRepr(NonZeroUsize);
+pub struct HeapRepr(NonZeroUsize);
 
 impl HeapRepr {
-    fn as_ptr(&self) -> *const usize {
-        core::ptr::with_exposed_provenance::<usize>(self.0.get())
+    pub fn as_ptr(&self) -> NonNull<NonZeroUsize> {
+        NonNull::with_exposed_provenance(self.0)
     }
 
-    fn as_ptr_mut(&self) -> *mut usize {
-        core::ptr::with_exposed_provenance_mut::<usize>(self.0.get())
+    pub fn as_ptr_mut(&mut self) -> NonNull<NonZeroUsize> {
+        NonNull::with_exposed_provenance(self.0)
     }
 
-    fn len(&self) -> usize {
+    /// Returns the length of the stored string.
+    ///
+    /// Returns a [`NonZeroUsize`] as [`HeapRepr`] is always greater than [`NICHE_MAX_INT`].
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> NonZeroUsize {
         unsafe { self.as_ptr().read() }
     }
 
+    /// Returns the string as a slice of bytes.
     fn as_bytes(&self) -> &[u8] {
         let ptr = self.as_ptr();
         let len = self.len();
-        unsafe {
-            core::ptr::slice_from_raw_parts(ptr.add(1).cast::<u8>(), len)
-                .as_ref()
-                .unwrap_unchecked()
-        }
+        unsafe { NonNull::slice_from_raw_parts(ptr.add(1).cast::<u8>(), len.get()).as_ref() }
     }
 
+    /// Returns the string as a mutable slice of bytes.
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         let ptr = self.as_ptr_mut();
         let len = self.len();
-        unsafe {
-            core::ptr::slice_from_raw_parts_mut(ptr.add(1).cast::<u8>(), len)
-                .as_mut()
-                .unwrap_unchecked()
-        }
+        unsafe { NonNull::slice_from_raw_parts(ptr.add(1).cast::<u8>(), len.get()).as_mut() }
     }
 
+    /// Returns the string as a `&str`.
     fn as_str(&self) -> &str {
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
     }
 
+    /// Returns the string as a `&mut str`.
     fn as_str_mut(&mut self) -> &mut str {
         unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
     }
 }
 
 #[repr(C)]
-struct InlinedRepr {
+pub struct InlinedRepr {
     #[cfg(target_endian = "big")]
     data: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
     len: NonZeroU8,
@@ -111,6 +111,7 @@ struct InlinedRepr {
 }
 
 impl InlinedRepr {
+    /// Returns the string as a slice of bytes.
     fn as_bytes(&self) -> &[u8] {
         unsafe {
             (self.data.get_unchecked(..self.len.get() as usize) as *const [MaybeUninit<u8>]
@@ -120,6 +121,7 @@ impl InlinedRepr {
         }
     }
 
+    /// Returns the string as a mutable slice of bytes.
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
             (self.data.get_unchecked_mut(..self.len.get() as usize) as *mut [MaybeUninit<u8>]
@@ -129,17 +131,19 @@ impl InlinedRepr {
         }
     }
 
+    /// Returns the string as a `&str`.
     fn as_str(&self) -> &str {
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
     }
 
+    /// Returns the string as a `&mut str`.
     fn as_str_mut(&mut self) -> &mut str {
         unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
     }
 }
 
 #[repr(C)]
-struct Repr {
+pub struct InnerSinStr {
     _align: [usize; 0], // Zero-sized, forces usize alignment
     #[cfg(target_endian = "big")]
     data_or_partial_ptr: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
@@ -148,126 +152,18 @@ struct Repr {
     data_or_partial_ptr: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
 }
 
-impl Repr {
-    pub fn is_inlined(&self) -> bool {
-        let len = self.disc as usize;
-        len > 0 && len <= NICHE_MAX_INT
-    }
-
-    pub fn is_heap(&self) -> bool {
-        !self.is_inlined()
-    }
-
-    pub fn len(&self) -> usize {
-        if self.is_inlined() {
-            self.disc as usize
-        } else {
-            unsafe { self.get_heap() }.len()
-        }
-    }
-
-    pub unsafe fn get_heap(&self) -> &HeapRepr {
-        const _: () = assert!(size_of::<Repr>() == size_of::<usize>());
-        unsafe {
-            // SAFETY: We are picking up a previously exposed provenance.
-            // Repr is the same size as usize and we have confirmed we are dealing with a pointer.
-            // The feature gate in the struct definition ensure that endiannes is accounted for.
-            //
-            // The transmute is safe as we have confirmed they are the same size and have the same
-            // alignment.
-            transmute::<&Repr, &HeapRepr>(self)
-        }
-    }
-
-    unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
-        const _: () = assert!(size_of::<Repr>() == size_of::<usize>());
-        unsafe {
-            // SAFETY: We are picking up a previously exposed provenance.
-            // Repr is the same size as usize and we have confirmed we are dealing with a pointer.
-            // The feature gate in the struct definition ensure that endiannes is accounted for.
-            //
-            // The transmute is safe as we have confirmed they are the same size and have the same
-            // alignment.
-            transmute::<&mut Repr, &mut HeapRepr>(self)
-        }
-    }
-
-    pub const fn get_inlined(&self) -> &InlinedRepr {
-        unsafe { transmute(self) }
-    }
-
-    pub const fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
-        unsafe { transmute(self) }
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        if self.is_inlined() {
-            self.get_inlined().as_bytes()
-        } else {
-            unsafe { self.get_heap() }.as_bytes()
-        }
-    }
-
-    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
-        if self.is_inlined() {
-            self.get_inlined_mut().as_bytes_mut()
-        } else {
-            unsafe { self.get_heap_mut() }.as_bytes_mut()
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        if self.is_inlined() {
-            self.get_inlined().as_str()
-        } else {
-            unsafe { self.get_heap() }.as_str()
-        }
-    }
-
-    pub fn as_str_mut(&mut self) -> &mut str {
-        if self.is_inlined() {
-            self.get_inlined_mut().as_str_mut()
-        } else {
-            unsafe { self.get_heap_mut() }.as_str_mut()
-        }
-    }
-}
-
-impl Drop for Repr {
-    fn drop(&mut self) {
-        if self.is_heap() {
-            let heap = unsafe { self.get_heap_mut() };
-            let ptr = heap.as_ptr_mut();
-            let len = heap.len();
-            unsafe {
-                let layout = Layout::from_size_align(size_of::<usize>() + len, align_of::<usize>())
-                    .unwrap_unchecked();
-                dealloc(ptr as _, layout)
-            };
-        }
-    }
-}
-
-// Ensure Repr and Option<Repr> is NPO
-const _: () = assert!(size_of::<Repr>() == size_of::<usize>());
-const _: () = assert!(size_of::<Option<Repr>>() == size_of::<usize>());
-const _: () = assert!(size_of::<Option<Repr>>() >= align_of::<usize>());
-
-#[repr(transparent)]
-pub struct SinStr(Option<Repr>);
-
-impl SinStr {
-    pub fn new(s: &str) -> Self {
+impl InnerSinStr {
+    pub fn new(s: &str) -> Option<Self> {
         let len = s.len();
         if len == 0 {
-            return Self(None);
+            return None;
         }
 
-        if NICHE_MAX_INT >= len {
+        Some(if NICHE_MAX_INT >= len {
             unsafe { Self::new_inline(s) }
         } else {
             unsafe { Self::new_heap(s) }
-        }
+        })
     }
 
     /// Creates a new `SinStr` that stores data in the `SinStr` directly.
@@ -275,9 +171,9 @@ impl SinStr {
     /// # Safety
     ///
     /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`].
-    const unsafe fn new_inline(s: &str) -> Self {
+    pub const unsafe fn new_inline(s: &str) -> Self {
         let len = s.len();
-        debug_assert!(len <= NICHE_MAX_INT);
+        debug_assert!(len <= NICHE_MAX_INT && len > 0);
         let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
         let mut i = 0;
         while i < len {
@@ -287,11 +183,11 @@ impl SinStr {
 
         // SAFETY: len is less than NICHE_MAX_INT and all versions of DiscriminantValues have variants with that value.
         unsafe {
-            Self(Some(Repr {
+            InnerSinStr {
                 _align: [],
                 disc: transmute::<u8, discriminant::DiscriminantValues>(len as u8),
                 data_or_partial_ptr: buf,
-            }))
+            }
         }
     }
 
@@ -300,7 +196,7 @@ impl SinStr {
     /// # Safety
     ///
     /// The length of the provided string must be greater than [`NICHE_MAX_INT`].
-    unsafe fn new_heap(s: &str) -> Self {
+    pub unsafe fn new_heap(s: &str) -> Self {
         let len = s.len();
         debug_assert!(len > NICHE_MAX_INT);
         let total_size = size_of::<usize>()
@@ -326,50 +222,230 @@ impl SinStr {
         // The discriminant byte will be the high byte of the pointer.
         // Heap pointers on most architectures have high byte > NICHE_MAX_INT,
         // ensuring is_heap() returns true.
+        unsafe { transmute::<usize, InnerSinStr>(ptr.as_ptr().expose_provenance()) }
+    }
+
+    pub const fn is_inlined(&self) -> bool {
+        let len = self.disc as usize;
+        len > 0 && len <= NICHE_MAX_INT
+    }
+
+    pub fn is_heap(&self) -> bool {
+        !self.is_inlined()
+    }
+
+    pub fn len(&self) -> NonZeroUsize {
+        if self.is_inlined() {
+            unsafe { NonZeroUsize::new_unchecked(self.disc as usize) }
+        } else {
+            unsafe { self.get_heap() }.len()
+        }
+    }
+
+    /// Get the heap repr for the [`InnerSinStr`].
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that the string is heap allocated.
+    pub unsafe fn get_heap(&self) -> &HeapRepr {
+        const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
+        const _: () = assert!(align_of::<InnerSinStr>() == align_of::<usize>());
         unsafe {
-            Self(Some(transmute::<usize, Repr>(
-                ptr.as_ptr().expose_provenance(),
-            )))
+            // SAFETY: We are picking up a previously exposed provenance.
+            // Repr is the same size as usize and we have confirmed we are dealing with a pointer.
+            // The feature gate in the struct definition ensure that endiannes is accounted for.
+            //
+            // The transmute is safe as we have confirmed they are the same size and have the same
+            // alignment.
+            transmute::<&InnerSinStr, &HeapRepr>(self)
         }
     }
 
-    pub fn len(&self) -> usize {
-        match &self.0 {
-            None => 0,
-            Some(repr) => repr.len(),
+    /// Get the heap repr for the [`InnerSinStr`].
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that the string is heap allocated.
+    pub unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
+        const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
+        unsafe {
+            // SAFETY: We are picking up a previously exposed provenance.
+            // Repr is the same size as usize and we have confirmed we are dealing with a pointer.
+            // The feature gate in the struct definition ensure that endiannes is accounted for.
+            //
+            // The transmute is safe as we have confirmed they are the same size and have the same
+            // alignment.
+            transmute::<&mut InnerSinStr, &mut HeapRepr>(self)
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    /// Get the inline repr for the [`InnerSinStr`].
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that the string is inlined.
+    pub const unsafe fn get_inlined(&self) -> &InlinedRepr {
+        // SAFETY: Self and InlinedRepr have the same size and alignment.
+        unsafe { transmute(self) }
     }
 
-    pub fn as_str(&self) -> &str {
-        match &self.0 {
-            None => "",
-            Some(repr) => repr.as_str(),
-        }
+    /// Get the inline repr for the [`InnerSinStr`].
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that the string is inlined.
+    pub const unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
+        unsafe { transmute(self) }
     }
 
+    /// Returns the string as a slice of bytes.
     pub fn as_bytes(&self) -> &[u8] {
-        match &self.0 {
-            None => b"",
-            Some(repr) => repr.as_bytes(),
+        if self.is_inlined() {
+            // SAFETY: just checked that the string is inlined
+            unsafe { self.get_inlined() }.as_bytes()
+        } else {
+            // SAFETY: just checked that the string is not inlined
+            unsafe { self.get_heap() }.as_bytes()
+        }
+    }
+
+    /// Returns the string as a mutable slice of bytes.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        if self.is_inlined() {
+            // SAFETY: just checked that the string is inlined
+            unsafe { self.get_inlined_mut() }.as_bytes_mut()
+        } else {
+            // SAFETY: just checked that the string is not inlined
+            unsafe { self.get_heap_mut() }.as_bytes_mut()
+        }
+    }
+
+    /// Returns the string as a `&str`.
+    pub fn as_str(&self) -> &str {
+        if self.is_inlined() {
+            // SAFETY: just checked that the string is inlined
+            unsafe { self.get_inlined() }.as_str()
+        } else {
+            // SAFETY: just checked that the string is not inlined
+            unsafe { self.get_heap() }.as_str()
+        }
+    }
+
+    /// Returns the string as a `&mut str`.
+    pub fn as_str_mut(&mut self) -> &mut str {
+        if self.is_inlined() {
+            // SAFETY: just checked that the string is inlined
+            unsafe { self.get_inlined_mut() }.as_str_mut()
+        } else {
+            // SAFETY: just checked that the string is not inlined
+            unsafe { self.get_heap_mut() }.as_str_mut()
+        }
+    }
+}
+
+impl Drop for InnerSinStr {
+    fn drop(&mut self) {
+        if self.is_heap() {
+            // SAFETY: just checked that the string is on the heap
+            let heap = unsafe { self.get_heap_mut() };
+            let ptr = heap.as_ptr_mut();
+            let len = heap.len();
+            unsafe {
+                let layout =
+                    Layout::from_size_align(size_of::<usize>() + len.get(), align_of::<usize>())
+                        .unwrap_unchecked();
+                dealloc(ptr.cast::<u8>().as_ptr(), layout)
+            };
+        }
+    }
+}
+
+// Ensure Repr and Option<Repr> is NPO
+const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
+const _: () = assert!(size_of::<Option<InnerSinStr>>() == size_of::<usize>());
+const _: () = assert!(size_of::<Option<InnerSinStr>>() >= align_of::<usize>());
+
+#[repr(transparent)]
+pub struct SinStr(Option<InnerSinStr>);
+
+impl SinStr {
+    pub fn new(s: &str) -> Self {
+        Self(InnerSinStr::new(s))
+    }
+
+    /// Creates a new `SinStr` that stores data in the `SinStr` directly.
+    ///
+    /// # Safety
+    ///
+    /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`] but
+    /// greater than `0`.
+    pub const unsafe fn new_inline(s: &str) -> Self {
+        Self(unsafe { Some(InnerSinStr::new_inline(s)) })
+    }
+
+    /// Creates a new `SinStr` that stores data on the heap.
+    ///
+    /// # Safety
+    ///
+    /// The length of the provided string must be greater than [`NICHE_MAX_INT`].
+    pub unsafe fn new_heap(s: &str) -> Self {
+        Self(unsafe { Some(InnerSinStr::new_heap(s)) })
+    }
+
+    /// Returns the length of the string.
+    pub fn len(&self) -> usize {
+        self.0.as_ref().map_or(0, |r| r.len().get())
+    }
+
+    /// Returns `true` if the string is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// Returns the string as a `&str`.
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref().map_or("", InnerSinStr::as_str)
+    }
+
+    /// Returns the string as a `&mut str`.
+    pub fn as_str_mut(&mut self) -> &mut str {
+        match &mut self.0 {
+            Some(r) => r.as_str_mut(),
+            r @ None => unsafe {
+                str::from_utf8_unchecked_mut(core::slice::from_raw_parts_mut(
+                    r as *mut Option<InnerSinStr> as *mut u8,
+                    0,
+                ))
+            },
+        }
+    }
+
+    /// Returns the string as a slice of bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_ref().map_or(b"", InnerSinStr::as_bytes)
+    }
+
+    /// Returns the string as a mutable slice of bytes.
+    ///
+    /// # Safety
+    ///
+    /// The bytes must be valid UTF-8.
+    pub unsafe fn as_byte_mut(&mut self) -> &mut [u8] {
+        match &mut self.0 {
+            Some(r) => r.as_bytes_mut(),
+            r @ None => unsafe {
+                core::slice::from_raw_parts_mut(r as *mut Option<InnerSinStr> as *mut u8, 0)
+            },
         }
     }
 
     pub fn is_inlined(&self) -> bool {
-        match &self.0 {
-            None => false,
-            Some(repr) => repr.is_inlined(),
-        }
+        // Implementation detail but we consider an empty string inlined
+        self.0.as_ref().is_none_or(InnerSinStr::is_inlined)
     }
 
     pub fn is_heap(&self) -> bool {
-        match &self.0 {
-            None => false,
-            Some(repr) => repr.is_heap(),
-        }
+        self.0.as_ref().is_some_and(InnerSinStr::is_heap)
     }
 }
 
@@ -399,7 +475,7 @@ mod tests {
         assert_eq!(s.len(), 0);
         assert_eq!(s.as_str(), "");
         assert_eq!(s.as_bytes(), b"");
-        assert!(!s.is_inlined());
+        assert!(s.is_inlined());
         assert!(!s.is_heap());
     }
 
