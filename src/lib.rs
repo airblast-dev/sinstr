@@ -46,7 +46,7 @@
 use core::str;
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
-    mem::{MaybeUninit, size_of, transmute, transmute_copy},
+    mem::{MaybeUninit, size_of, transmute},
     num::{NonZeroU8, NonZeroUsize},
     ptr::NonNull,
 };
