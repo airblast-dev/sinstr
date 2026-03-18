@@ -30,6 +30,7 @@ impl HeapRepr {
     /// Returns a [`NonZeroUsize`] as [`HeapRepr`] is always greater than [`NICHE_MAX_INT`].
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> NonZeroUsize {
+        // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize
         unsafe { self.as_ptr().read() }
     }
 
@@ -37,6 +38,7 @@ impl HeapRepr {
     fn as_bytes(&self) -> &[u8] {
         let ptr = self.as_ptr();
         let len = self.len();
+        // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize + len bytes
         unsafe { NonNull::slice_from_raw_parts(ptr.add(1).cast::<u8>(), len.get()).as_ref() }
     }
 
