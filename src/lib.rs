@@ -218,7 +218,7 @@ impl InnerSinStr {
     }
 
     #[inline]
-    pub fn is_heap(&self) -> bool {
+    pub const fn is_heap(&self) -> bool {
         !self.is_inlined()
     }
 
