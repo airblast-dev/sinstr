@@ -1,9 +1,11 @@
-use core::str;
-use std::{
-    alloc::{Layout, alloc, dealloc, handle_alloc_error},
+#![no_std]
+extern crate alloc;
+use alloc::alloc::{Layout, alloc, dealloc, handle_alloc_error};
+use core::{
     mem::{MaybeUninit, size_of, transmute},
     num::{NonZeroU8, NonZeroUsize},
     ptr::NonNull,
+    str,
 };
 
 mod discriminant;

@@ -1,4 +1,4 @@
-use std::mem::align_of;
+use core::mem::align_of;
 
 pub(crate) const NICHE_BITS: u32 = align_of::<usize>().trailing_zeros();
 pub(crate) const NICHE_MAX_INT: usize = usize::MAX >> (usize::BITS - NICHE_BITS);
