@@ -1,52 +1,7 @@
-//! # SinStr - Compact String with Small String Optimization
-//!
-//! A compact string type that fits in a single `usize` using Small String Optimization (SSO).
-//!
-//! ## Key Properties
-//!
-//! - **Size**: Exactly `size_of::<usize>()` bytes (8 bytes on 64-bit)
-//! - **Inline capacity**: Platform-dependent (7 bytes on 64-bit, 3 on 32-bit, 1 on 16-bit)
-//! - **Zero-cost**: No heap allocation for short strings
-//! - **Niche-optimized**: `Option<SinStr>` is the same size as `SinStr`
-//!
-//! ## Memory Layout
-//!
-//! Uses the low bits of a `usize` to store the discriminant. Heap pointers are aligned to
-//! `align_of::<usize>()` (8 on 64-bit), so low bits are always zero for valid heap pointers.
-//!
-//! ### Inline (length <= NICHE_MAX_INT)
-//! - Discriminant byte: length (1..=NICHE_MAX_INT)
-//! - Remaining bytes: string data
-//!
-//! ### Heap (length > NICHE_MAX_INT)
-//! - Full pointer stored
-//! - Length stored at `ptr - 1` (before string data)
-//! - High byte acts as heap discriminant (non-zero)
-//!
-//! ## Platform Differences
-//!
-//! | Platform | NICHE_BITS | Max Inline |
-//! |----------|------------|------------|
-//! | 64-bit   | 3          | 7 bytes    |
-//! | 32-bit   | 2          | 3 bytes    |
-//! | 16-bit   | 1          | 1 byte     |
-//!
-//! ## Example
-//!
-//! ```
-//! use sinstr::SinStr;
-//!
-//! let small = SinStr::new("hi");  // Inline on 64-bit
-//! let large = SinStr::new("hello world"); // Heap
-//!
-//! assert!(small.is_inlined());
-//! assert!(large.is_heap());
-//! ```
-
 use core::str;
 use std::{
-    alloc::{alloc, dealloc, handle_alloc_error, Layout},
-    mem::{size_of, transmute, MaybeUninit},
+    alloc::{Layout, alloc, dealloc, handle_alloc_error},
+    mem::{MaybeUninit, size_of, transmute},
     num::{NonZeroU8, NonZeroUsize},
     ptr::NonNull,
 };
@@ -92,11 +47,15 @@ impl HeapRepr {
 
     /// Returns the string as a `&str`.
     fn as_str(&self) -> &str {
+        // SAFETY: The bytes were copied from a valid &str during construction
+        // and haven't been mutated, so they remain valid UTF-8.
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
     }
 
     /// Returns the string as a `&mut str`.
     fn as_str_mut(&mut self) -> &mut str {
+        // SAFETY: The bytes were copied from a valid &str during construction.
+        // The caller of as_str_mut() must preserve UTF-8 validity.
         unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
     }
 }
@@ -133,11 +92,15 @@ impl InlinedRepr {
 
     /// Returns the string as a `&str`.
     fn as_str(&self) -> &str {
+        // SAFETY: The bytes were copied from a valid &str during construction
+        // and haven't been mutated, so they remain valid UTF-8.
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
     }
 
     /// Returns the string as a `&mut str`.
     fn as_str_mut(&mut self) -> &mut str {
+        // SAFETY: The bytes were copied from a valid &str during construction.
+        // The caller of as_str_mut() must preserve UTF-8 validity.
         unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
     }
 }
@@ -153,6 +116,9 @@ pub struct InnerSinStr {
 }
 
 impl InnerSinStr {
+    /// Create a new [`InnerSinStr`]
+    ///
+    /// Returns [`None`] if the string is empty.
     pub fn new(s: &str) -> Option<Self> {
         let len = s.len();
         if len == 0 {
@@ -236,6 +202,8 @@ impl InnerSinStr {
 
     pub fn len(&self) -> NonZeroUsize {
         if self.is_inlined() {
+            // SAFETY: is_inlined() guarantees the discriminant represents a valid
+            // inline length in range 1..=NICHE_MAX_INT, which is always non-zero.
             unsafe { NonZeroUsize::new_unchecked(self.disc as usize) }
         } else {
             unsafe { self.get_heap() }.len()
