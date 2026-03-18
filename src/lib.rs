@@ -401,7 +401,7 @@ impl SinStr {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid UTF-8.
+    /// After mutation, the bytes must remain valid UTF-8.
     pub unsafe fn as_byte_mut(&mut self) -> &mut [u8] {
         match &mut self.0 {
             Some(r) => r.as_bytes_mut(),
