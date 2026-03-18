@@ -151,7 +151,7 @@ impl InnerSinStr {
             i += 1;
         }
 
-        // SAFETY: len is less than NICHE_MAX_INT and all versions of DiscriminantValues have variants with that value.
+        // SAFETY: len is less than or equal to NICHE_MAX_INT and all versions of DiscriminantValues have variants with that value.
         unsafe {
             InnerSinStr {
                 _align: [],
