@@ -1,7 +1,7 @@
 //! Niche discriminant values for different pointer widths.
 //!
 //! This module defines the [`DiscriminantValues`] enum and niche-related constants
-//! used by [`super::SinStr`] to determine whether a string is stored inline or on the heap.
+//! used by [`crate::SinStr`] to determine whether a string is stored inline or on the heap.
 //!
 //! ## How Niche Optimization Works
 //!
