@@ -208,7 +208,6 @@ impl InnerSinStr {
                 .cast::<u8>()
                 .copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut u8), len);
             // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
-            // The discriminant byte will be the high byte of the pointer.
             // Heap pointers on most architectures have high byte > NICHE_MAX_INT,
             // ensuring is_heap() returns true.
             transmute::<usize, InnerSinStr>(ptr.expose_provenance().get())
