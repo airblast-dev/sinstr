@@ -202,7 +202,6 @@ impl InnerSinStr {
     /// # Safety
     ///
     /// The length of the provided string must be greater than [`NICHE_MAX_INT`].
-    #[cold]
     pub unsafe fn new_heap(s: &str) -> Self {
         let len = s.len();
         debug_assert!(len > NICHE_MAX_INT);
@@ -262,7 +261,6 @@ impl InnerSinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
-    #[cold]
     pub unsafe fn get_heap(&self) -> &HeapRepr {
         const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
         const _: () = assert!(align_of::<InnerSinStr>() == align_of::<usize>());
@@ -278,7 +276,6 @@ impl InnerSinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
-    #[cold]
     pub unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
         const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
         unsafe {
