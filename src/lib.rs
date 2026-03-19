@@ -12,8 +12,25 @@ use core::{
 mod discriminant;
 pub use discriminant::{DiscriminantValues, NICHE_MAX_INT};
 
+#[inline]
 #[cold]
-fn cold() {}
+const fn cold() {}
+
+#[inline]
+const fn likely(b: bool) -> bool {
+    if !b {
+        cold()
+    }
+    b
+}
+
+#[inline]
+const fn unlikely(b: bool) -> bool {
+    if b {
+        cold()
+    }
+    b
+}
 
 #[repr(C)]
 pub struct HeapRepr(NonZeroUsize);
@@ -144,13 +161,11 @@ impl InnerSinStr {
             return None;
         }
 
-        Some(if NICHE_MAX_INT >= len {
+        Some(if likely(NICHE_MAX_INT >= len) {
             // SAFETY: we have ensured `s` fits in an inline string
             unsafe { Self::new_inline(s) }
         } else {
             // SAFETY: we have ensured `s` does not fit in an inline string
-
-            cold();
             unsafe { Self::new_heap(s) }
         })
     }
@@ -187,7 +202,7 @@ impl InnerSinStr {
     /// # Safety
     ///
     /// The length of the provided string must be greater than [`NICHE_MAX_INT`].
-    #[inline]
+    #[cold]
     pub unsafe fn new_heap(s: &str) -> Self {
         let len = s.len();
         debug_assert!(len > NICHE_MAX_INT);
@@ -225,12 +240,12 @@ impl InnerSinStr {
         // This is also why we can't store empty strings in the inner repr as the length value is all zero bits.
         let len = self.disc as usize;
         // No branching since the sub just wraps
-        (len.wrapping_sub(1)) < NICHE_MAX_INT
+        likely((len.wrapping_sub(1)) < NICHE_MAX_INT)
     }
 
     #[inline]
     pub const fn is_heap(&self) -> bool {
-        !self.is_inlined()
+        unlikely(!self.is_inlined())
     }
 
     #[inline]
@@ -254,13 +269,9 @@ impl InnerSinStr {
         const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
         const _: () = assert!(align_of::<InnerSinStr>() == align_of::<usize>());
         unsafe {
-            // SAFETY: We are picking up a previously exposed provenance.
-            // Repr is the same size as usize and we have confirmed we are dealing with a pointer.
-            // The feature gate in the struct definition ensure that endiannes is accounted for.
-            //
-            // The transmute is safe as we have confirmed they are the same size and have the same
-            // alignment.
-            transmute::<&InnerSinStr, &HeapRepr>(self)
+            (self as *const InnerSinStr as *const HeapRepr)
+                .as_ref()
+                .unwrap_unchecked()
         }
     }
 
@@ -273,13 +284,9 @@ impl InnerSinStr {
     pub unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
         const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
         unsafe {
-            // SAFETY: We are picking up a previously exposed provenance.
-            // Repr is the same size as usize and we have confirmed we are dealing with a pointer.
-            // The feature gate in the struct definition ensure that endiannes is accounted for.
-            //
-            // The transmute is safe as we have confirmed they are the same size and have the same
-            // alignment.
-            transmute::<&mut InnerSinStr, &mut HeapRepr>(self)
+            (self as *mut InnerSinStr as *mut HeapRepr)
+                .as_mut()
+                .unwrap_unchecked()
         }
     }
 
@@ -300,18 +307,21 @@ impl InnerSinStr {
     ///
     /// Caller must ensure that the string is inlined.
     #[inline]
-    pub const unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
-        unsafe { transmute(self) }
+    pub unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
+        unsafe {
+            (self as *mut InnerSinStr as *mut InlinedRepr)
+                .as_mut()
+                .unwrap_unchecked()
+        }
     }
 
     /// Returns the string as a slice of bytes.
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
-        if self.is_inlined() {
-            // SAFETY: just checked that the string is inlined
+        // SAFETY: just checked that the string is inlined
+        if likely(self.is_inlined()) {
             unsafe { self.get_inlined() }.as_bytes()
         } else {
-            // SAFETY: just checked that the string is not inlined
             unsafe { self.get_heap() }.as_bytes()
         }
     }
@@ -319,8 +329,7 @@ impl InnerSinStr {
     /// Returns the string as a mutable slice of bytes.
     #[inline]
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
-        if self.is_inlined() {
-            // SAFETY: just checked that the string is inlined
+        if likely(self.is_inlined()) {
             unsafe { self.get_inlined_mut() }.as_bytes_mut()
         } else {
             // SAFETY: just checked that the string is not inlined
@@ -331,8 +340,8 @@ impl InnerSinStr {
     /// Returns the string as a `&str`.
     #[inline(always)]
     pub fn as_str(&self) -> &str {
-        if self.is_inlined() {
-            // SAFETY: just checked that the string is inlined
+        // SAFETY: just checked that the string is inlined
+        if likely(self.is_inlined()) {
             unsafe { self.get_inlined() }.as_str()
         } else {
             // SAFETY: just checked that the string is not inlined
@@ -343,8 +352,8 @@ impl InnerSinStr {
     /// Returns the string as a `&mut str`.
     #[inline]
     pub fn as_str_mut(&mut self) -> &mut str {
-        if self.is_inlined() {
-            // SAFETY: just checked that the string is inlined
+        // SAFETY: just checked that the string is inlined
+        if likely(self.is_inlined()) {
             unsafe { self.get_inlined_mut() }.as_str_mut()
         } else {
             // SAFETY: just checked that the string is not inlined
@@ -354,20 +363,27 @@ impl InnerSinStr {
 }
 
 impl Drop for InnerSinStr {
+    #[inline]
     fn drop(&mut self) {
         if self.is_heap() {
-            cold();
             // SAFETY: just checked that the string is on the heap
-            let heap = unsafe { self.get_heap_mut() };
+            unsafe { self.drop_heap() };
+        }
+    }
+}
+
+impl InnerSinStr {
+    #[cold]
+    unsafe fn drop_heap(&mut self) {
+        unsafe {
+            let heap = self.get_heap_mut();
             let ptr = heap.as_ptr_mut();
             let len = heap.len();
-            unsafe {
-                let layout = Layout::from_size_align_unchecked(
-                    size_of::<usize>().unchecked_add(len.get()),
-                    align_of::<usize>(),
-                );
-                dealloc(ptr.cast::<u8>().as_ptr(), layout)
-            };
+            let layout = Layout::from_size_align_unchecked(
+                size_of::<usize>().unchecked_add(len.get()),
+                align_of::<usize>(),
+            );
+            dealloc(ptr.cast::<u8>().as_ptr(), layout)
         }
     }
 }
@@ -408,21 +424,27 @@ impl SinStr {
     }
 
     /// Returns the length of the string.
-    #[inline]
+    #[inline(always)]
     pub fn len(&self) -> usize {
-        self.0.as_ref().map_or(0, |r| r.len().get())
+        match &self.0 {
+            Some(r) => r.len().get(),
+            None => 0,
+        }
     }
 
     /// Returns `true` if the string is empty.
-    #[inline]
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.0.is_none()
     }
 
     /// Returns the string as a `&str`.
-    #[inline]
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
-        self.0.as_ref().map_or("", InnerSinStr::as_str)
+        match &self.0 {
+            Some(r) => r.as_str(),
+            None => "",
+        }
     }
 
     /// Returns the string as a `&mut str`.
@@ -440,9 +462,12 @@ impl SinStr {
     }
 
     /// Returns the string as a slice of bytes.
-    #[inline]
+    #[inline(always)]
     pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_ref().map_or(b"", InnerSinStr::as_bytes)
+        match &self.0 {
+            Some(r) => r.as_bytes(),
+            None => b"",
+        }
     }
 
     /// Returns the string as a mutable slice of bytes.
@@ -460,13 +485,16 @@ impl SinStr {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_inlined(&self) -> bool {
         // Implementation detail but we consider an empty string inlined
-        self.0.as_ref().is_none_or(InnerSinStr::is_inlined)
+        match &self.0 {
+            Some(r) => r.is_inlined(),
+            None => true,
+        }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_heap(&self) -> bool {
         self.0.as_ref().is_some_and(InnerSinStr::is_heap)
     }
