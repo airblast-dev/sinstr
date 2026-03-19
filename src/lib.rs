@@ -93,10 +93,10 @@ impl HeapRepr {
 #[repr(C)]
 pub struct InlinedRepr {
     _align: [usize; 0],
-    #[cfg(target_endian = "big")]
+    #[cfg(target_endian = "little")]
     data: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
     len: NonZeroU8,
-    #[cfg(target_endian = "little")]
+    #[cfg(target_endian = "big")]
     data: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
 }
 
@@ -141,17 +141,17 @@ impl InlinedRepr {
 }
 
 #[repr(C)]
-pub struct InnerSinStr {
+pub struct NonEmptySinStr {
     _align: [usize; 0], // Zero-sized, forces usize alignment
-    #[cfg(target_endian = "big")]
+    #[cfg(target_endian = "little")]
     data_or_partial_ptr: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
     disc: DiscriminantValues,
-    #[cfg(target_endian = "little")]
+    #[cfg(target_endian = "big")]
     data_or_partial_ptr: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
 }
 
-impl InnerSinStr {
-    /// Create a new [`InnerSinStr`]
+impl NonEmptySinStr {
+    /// Create a new [`NonEmptySinStr`]
     ///
     /// Returns [`None`] if the string is empty.
     #[inline]
@@ -189,7 +189,7 @@ impl InnerSinStr {
 
         // SAFETY: len is less than or equal to NICHE_MAX_INT and all versions of DiscriminantValues have variants with that value.
         unsafe {
-            InnerSinStr {
+            NonEmptySinStr {
                 _align: [],
                 disc: transmute::<u8, discriminant::DiscriminantValues>(len as u8),
                 data_or_partial_ptr: buf,
@@ -222,7 +222,7 @@ impl InnerSinStr {
                 .cast::<u8>()
                 .copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut u8), len);
             // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
-            transmute::<usize, InnerSinStr>(ptr.expose_provenance().get())
+            transmute::<usize, NonEmptySinStr>(ptr.expose_provenance().get())
         }
     }
 
@@ -256,36 +256,36 @@ impl InnerSinStr {
         }
     }
 
-    /// Get the heap repr for the [`InnerSinStr`].
+    /// Get the heap repr for the [`NonEmptySinStr`].
     ///
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
     pub unsafe fn get_heap(&self) -> &HeapRepr {
-        const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
-        const _: () = assert!(align_of::<InnerSinStr>() == align_of::<usize>());
+        const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
+        const _: () = assert!(align_of::<NonEmptySinStr>() == align_of::<usize>());
         unsafe {
-            (self as *const InnerSinStr as *const HeapRepr)
+            (self as *const NonEmptySinStr as *const HeapRepr)
                 .as_ref()
                 .unwrap_unchecked()
         }
     }
 
-    /// Get the heap repr for the [`InnerSinStr`].
+    /// Get the heap repr for the [`NonEmptySinStr`].
     ///
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
     pub unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
-        const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
+        const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
         unsafe {
-            (self as *mut InnerSinStr as *mut HeapRepr)
+            (self as *mut NonEmptySinStr as *mut HeapRepr)
                 .as_mut()
                 .unwrap_unchecked()
         }
     }
 
-    /// Get the inline repr for the [`InnerSinStr`].
+    /// Get the inline repr for the [`NonEmptySinStr`].
     ///
     /// # Safety
     ///
@@ -296,7 +296,7 @@ impl InnerSinStr {
         unsafe { transmute(self) }
     }
 
-    /// Get the inline repr for the [`InnerSinStr`].
+    /// Get the inline repr for the [`NonEmptySinStr`].
     ///
     /// # Safety
     ///
@@ -304,7 +304,7 @@ impl InnerSinStr {
     #[inline]
     pub unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
         unsafe {
-            (self as *mut InnerSinStr as *mut InlinedRepr)
+            (self as *mut NonEmptySinStr as *mut InlinedRepr)
                 .as_mut()
                 .unwrap_unchecked()
         }
@@ -357,7 +357,7 @@ impl InnerSinStr {
     }
 }
 
-impl Drop for InnerSinStr {
+impl Drop for NonEmptySinStr {
     #[inline]
     fn drop(&mut self) {
         if self.is_heap() {
@@ -367,7 +367,7 @@ impl Drop for InnerSinStr {
     }
 }
 
-impl InnerSinStr {
+impl NonEmptySinStr {
     #[cold]
     unsafe fn drop_heap(&mut self) {
         unsafe {
@@ -384,17 +384,17 @@ impl InnerSinStr {
 }
 
 // Ensure Repr and Option<Repr> is NPO
-const _: () = assert!(size_of::<InnerSinStr>() == size_of::<usize>());
-const _: () = assert!(size_of::<Option<InnerSinStr>>() == size_of::<usize>());
-const _: () = assert!(size_of::<Option<InnerSinStr>>() >= align_of::<usize>());
+const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
+const _: () = assert!(size_of::<Option<NonEmptySinStr>>() == size_of::<usize>());
+const _: () = assert!(size_of::<Option<NonEmptySinStr>>() >= align_of::<usize>());
 
 #[repr(transparent)]
-pub struct SinStr(Option<InnerSinStr>);
+pub struct SinStr(Option<NonEmptySinStr>);
 
 impl SinStr {
     #[inline]
     pub fn new(s: &str) -> Self {
-        Self(InnerSinStr::new(s))
+        Self(NonEmptySinStr::new(s))
     }
 
     /// Creates a new `SinStr` that stores data in the `SinStr` directly.
@@ -405,7 +405,7 @@ impl SinStr {
     /// greater than `0`.
     #[inline]
     pub const unsafe fn new_inline(s: &str) -> Self {
-        Self(unsafe { Some(InnerSinStr::new_inline(s)) })
+        Self(unsafe { Some(NonEmptySinStr::new_inline(s)) })
     }
 
     /// Creates a new `SinStr` that stores data on the heap.
@@ -415,7 +415,7 @@ impl SinStr {
     /// The length of the provided string must be greater than [`NICHE_MAX_INT`].
     #[inline]
     pub unsafe fn new_heap(s: &str) -> Self {
-        Self(unsafe { Some(InnerSinStr::new_heap(s)) })
+        Self(unsafe { Some(NonEmptySinStr::new_heap(s)) })
     }
 
     /// Returns the length of the string.
@@ -449,7 +449,7 @@ impl SinStr {
             Some(r) => r.as_str_mut(),
             r @ None => unsafe {
                 str::from_utf8_unchecked_mut(core::slice::from_raw_parts_mut(
-                    r as *mut Option<InnerSinStr> as *mut u8,
+                    r as *mut Option<NonEmptySinStr> as *mut u8,
                     0,
                 ))
             },
@@ -475,7 +475,7 @@ impl SinStr {
         match &mut self.0 {
             Some(r) => r.as_bytes_mut(),
             r @ None => unsafe {
-                core::slice::from_raw_parts_mut(r as *mut Option<InnerSinStr> as *mut u8, 0)
+                core::slice::from_raw_parts_mut(r as *mut Option<NonEmptySinStr> as *mut u8, 0)
             },
         }
     }
@@ -491,7 +491,7 @@ impl SinStr {
 
     #[inline(always)]
     pub fn is_heap(&self) -> bool {
-        self.0.as_ref().is_some_and(InnerSinStr::is_heap)
+        self.0.as_ref().is_some_and(NonEmptySinStr::is_heap)
     }
 }
 
