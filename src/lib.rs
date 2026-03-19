@@ -219,7 +219,13 @@ impl InnerSinStr {
     pub const fn is_inlined(&self) -> bool {
         // If the discriminant is less than NICHE_MAX_INT but greater than 0
         // Then it means the pointer isn't properly aligned making it an inlined string.
+        //
+        // We are using the heap pointers alignment requirements as the niche to detect if we are inlined.
+        // If on the heap the LSB `NICHE_BITS` are always zero.
+        //
+        // This is also why we can't store empty strings in the inner repr as the length value is all zero bits.
         let len = self.disc as usize;
+        // No branching since the sub just wraps
         (len.wrapping_sub(1)) < NICHE_MAX_INT
     }
 
