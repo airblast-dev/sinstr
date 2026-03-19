@@ -1,7 +1,42 @@
+//! Niche discriminant values for different pointer widths.
+//!
+//! This module defines the [`DiscriminantValues`] enum and niche-related constants
+//! used by [`super::SinStr`] to determine whether a string is stored inline or on the heap.
+//!
+//! ## How Niche Optimization Works
+//!
+//! Due to [`usize`] alignment requirements, certain bit patterns in a `usize` are
+//! guaranteed to be unused. For example, on 64-bit systems with 8-byte alignment,
+//! the low 3 bits of any `usize` value are always zero because all allocations are
+//! multiples of 8.
+//!
+//! This creates a "niche" - space that can be used to store discriminant information
+//! without increasing the size of the type.
+//!
+//! ## Constants
+//!
+//! - [`NICHE_BITS`]: Number of trailing zeros in [`usize`] alignment (determines niche size)
+//! - [`NICHE_MAX_INT`]: Maximum value that fits in the niche (determines max inline length)
+//!
+//! ## Platform-Specific Values
+//!
+//! | Platform | Alignment | NICHE_BITS | NICHE_MAX_INT |
+//! |----------|-----------|------------|---------------|
+//! | 64-bit   | 8 bytes   | 3          | 7             |
+//! | 32-bit   | 4 bytes   | 2          | 3             |
+//! | 16-bit   | 2 bytes   | 1          | 1             |
+
 use core::mem::align_of;
 
-pub(crate) const NICHE_BITS: u32 = align_of::<usize>().trailing_zeros();
+pub const NICHE_BITS: u32 = align_of::<usize>().trailing_zeros();
 pub const NICHE_MAX_INT: usize = usize::MAX >> (usize::BITS - NICHE_BITS);
+
+const _: () = {
+    assert!(
+        NICHE_BITS <= u8::BITS,
+        "NICHE_BITS should be less than or equal to 8 bits so we can fit the length in a single byte"
+    );
+};
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
