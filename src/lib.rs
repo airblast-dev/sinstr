@@ -2,6 +2,7 @@
 extern crate alloc;
 use alloc::alloc::{Layout, alloc, dealloc, handle_alloc_error};
 use core::{
+    hint::assert_unchecked,
     mem::{MaybeUninit, size_of, transmute},
     num::{NonZeroU8, NonZeroUsize},
     ptr::{self, NonNull},
@@ -105,7 +106,7 @@ impl InlinedRepr {
     }
 
     /// Returns the string as a `&str`.
-    #[inline]
+    #[inline(always)]
     fn as_str(&self) -> &str {
         // SAFETY: The bytes were copied from a valid &str during construction
         // and haven't been mutated, so they remain valid UTF-8.
@@ -162,6 +163,7 @@ impl InnerSinStr {
     pub const unsafe fn new_inline(s: &str) -> Self {
         let len = s.len();
         debug_assert!(len <= NICHE_MAX_INT && len > 0);
+        unsafe { assert_unchecked(len > 0 && len <= NICHE_MAX_INT) };
         let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
 
         // Use copy_nonoverlapping for better performance than byte-by-byte copy
@@ -188,6 +190,7 @@ impl InnerSinStr {
     pub unsafe fn new_heap(s: &str) -> Self {
         let len = s.len();
         debug_assert!(len > NICHE_MAX_INT);
+        unsafe { assert_unchecked(len > NICHE_MAX_INT) };
         let total_size = size_of::<usize>() + len;
         // SAFETY: align_of::<usize>() is always valid (power of 2) and total_size > 0 because len > NICHE_MAX_INT > 0
         let layout = unsafe { Layout::from_size_align_unchecked(total_size, align_of::<usize>()) };
@@ -202,19 +205,19 @@ impl InnerSinStr {
             ptr.cast::<usize>().write(len);
             ptr.add(size_of::<usize>())
                 .cast::<u8>()
-                .copy_from_nonoverlapping(NonNull::from_ref(&s.as_bytes()[0]), len);
+                .copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut u8), len);
             // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
             // The discriminant byte will be the high byte of the pointer.
             // Heap pointers on most architectures have high byte > NICHE_MAX_INT,
             // ensuring is_heap() returns true.
-            transmute::<usize, InnerSinStr>(ptr.as_ptr().expose_provenance())
+            transmute::<usize, InnerSinStr>(ptr.expose_provenance().get())
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn is_inlined(&self) -> bool {
         let len = self.disc as usize;
-        len > 0 && len <= NICHE_MAX_INT
+        len - 1 < NICHE_MAX_INT
     }
 
     #[inline]
@@ -277,7 +280,7 @@ impl InnerSinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is inlined.
-    #[inline]
+    #[inline(always)]
     pub const unsafe fn get_inlined(&self) -> &InlinedRepr {
         // SAFETY: Self and InlinedRepr have the same size and alignment.
         unsafe { transmute(self) }
@@ -318,7 +321,7 @@ impl InnerSinStr {
     }
 
     /// Returns the string as a `&str`.
-    #[inline]
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
         if self.is_inlined() {
             // SAFETY: just checked that the string is inlined
@@ -352,7 +355,7 @@ impl Drop for InnerSinStr {
             let len = heap.len();
             unsafe {
                 let layout = Layout::from_size_align_unchecked(
-                    size_of::<usize>() + len.get(),
+                    size_of::<usize>().unchecked_add(len.get()),
                     align_of::<usize>(),
                 );
                 dealloc(ptr.cast::<u8>().as_ptr(), layout)
