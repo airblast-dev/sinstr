@@ -53,7 +53,7 @@
 //! The last byte stores the discriminant (0x03), which equals the string length.
 //! Bytes [3-6] are MaybeUninit and contain unspecified values.
 //!
-//! **Heap string "hello world" (11 characters):**
+//! **Heap string "hello world" (11 bytes):**
 //!
 //! ```text
 //! NonEmptySinStr is a transmuted heap pointer:
@@ -80,9 +80,8 @@
 //!
 //! | Discriminant          | Meaning                         |
 //! |-----------------------|---------------------------------|
-//! | `0` (bit pattern)     | Empty (`Option::None`)          |
 //! | `1..=NICHE_MAX_INT`   | Inline string (value = length)  |
-//! | `> NICHE_MAX_INT`     | LSB of heap pointer (always ≥8) |
+//! | `> NICHE_MAX_INT or equal to 0`     | LSB of heap pointer |
 //!
 //! ## Performance Characteristics
 //!
@@ -108,7 +107,7 @@
 //! ```rust
 //! use sinstr::SinStr;
 //!
-//! // Inline storage (64-bit: up to 7 chars)
+//! // Inline storage (64-bit: up to 7 bytes)
 //! let inline = SinStr::new("hello");
 //! assert!(inline.is_inlined());
 //! assert_eq!(inline.len(), 5);
