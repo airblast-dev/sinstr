@@ -75,6 +75,7 @@ impl HeapRepr {
 
 #[repr(C)]
 pub struct InlinedRepr {
+    _align: [usize; 0],
     #[cfg(target_endian = "big")]
     data: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
     len: NonZeroU8,
@@ -216,8 +217,10 @@ impl InnerSinStr {
 
     #[inline(always)]
     pub const fn is_inlined(&self) -> bool {
+        // If the discriminant is less than NICHE_MAX_INT but greater than 0
+        // Then it means the pointer isn't properly aligned making it an inlined string.
         let len = self.disc as usize;
-        len - 1 < NICHE_MAX_INT
+        (len.wrapping_sub(1)) < NICHE_MAX_INT
     }
 
     #[inline]
