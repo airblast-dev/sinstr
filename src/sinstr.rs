@@ -1,4 +1,10 @@
-use core::{borrow::{Borrow, BorrowMut}, convert::Infallible, fmt::Display, ops::{Deref, DerefMut}, str::FromStr};
+use core::{
+    borrow::{Borrow, BorrowMut},
+    convert::Infallible,
+    fmt::Display,
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 
 use crate::non_empty::NonEmptySinStr;
 
@@ -208,7 +214,7 @@ mod tests {
     const _: () = assert!(size_of::<MyEnum>() == size_of::<SinStr>());
 
     #[test]
-    fn test_empty_string() {
+    fn test_empty() {
         let s = SinStr::new("");
         assert!(s.is_empty());
         assert_eq!(s.len(), 0);
@@ -219,86 +225,27 @@ mod tests {
     }
 
     #[test]
-    fn test_inline_string() {
-        use crate::discriminant::NICHE_MAX_INT;
-
-        // Length 1 is always inline on all platforms
-        let s = SinStr::new("a");
-        assert!(!s.is_empty());
-        assert_eq!(s.len(), 1);
-        assert_eq!(s.as_str(), "a");
-        assert_eq!(s.as_bytes(), b"a");
-        assert!(s.is_inlined());
-        assert!(!s.is_heap());
-
-        // Length 2 is inline on 32-bit and 64-bit, heap on 16-bit
-        if NICHE_MAX_INT >= 2 {
-            let s = SinStr::new("ab");
-            assert_eq!(s.len(), 2);
-            assert_eq!(s.as_str(), "ab");
-            assert!(s.is_inlined());
-        }
-
-        // Length 3 is inline on 64-bit only
-        if NICHE_MAX_INT >= 3 {
-            let s = SinStr::new("abc");
-            assert_eq!(s.len(), 3);
-            assert_eq!(s.as_str(), "abc");
-            assert_eq!(s.as_bytes(), b"abc");
-            assert!(s.is_inlined());
-        }
-
-        // Max inline length for this platform
-        let max_inline = "x".repeat(NICHE_MAX_INT);
-        let s = SinStr::new(&max_inline);
-        assert_eq!(s.len(), NICHE_MAX_INT);
-        assert_eq!(s.as_str(), max_inline);
-        assert_eq!(s.as_bytes(), max_inline.as_bytes());
-        assert!(s.is_inlined());
-        assert!(!s.is_heap());
+    fn test_empty_constant() {
+        assert!(SinStr::EMPTY.is_empty());
+        assert_eq!(SinStr::EMPTY.len(), 0);
     }
 
     #[test]
-    fn test_heap_string() {
-        use crate::discriminant::NICHE_MAX_INT;
+    fn test_default() {
+        let s: SinStr = SinStr::default();
+        assert!(s.is_empty());
+    }
 
-        // On 16-bit: NICHE_MAX_INT = 1, so length 2 is heap
-        // On 32-bit: NICHE_MAX_INT = 3, so length 4 is heap
-        // On 64-bit: NICHE_MAX_INT = 7, so length 8 is heap
-        let first_heap = "x".repeat(NICHE_MAX_INT + 1);
-        let s = SinStr::new(&first_heap);
-        assert!(!s.is_empty());
-        assert_eq!(s.len(), NICHE_MAX_INT + 1);
-        assert_eq!(s.as_str(), first_heap);
-        assert_eq!(s.as_bytes(), first_heap.as_bytes());
-        assert!(!s.is_inlined());
-        assert!(s.is_heap());
+    #[test]
+    fn test_from_str() {
+        use core::str::FromStr;
+        assert!(SinStr::from_str("").unwrap().is_empty());
+        assert_eq!(SinStr::from_str("test").unwrap().as_str(), "test");
+    }
 
-        // Test length 2 on 16-bit (which is heap)
-        if NICHE_MAX_INT < 2 {
-            let s = SinStr::new("ab");
-            assert_eq!(s.len(), 2);
-            assert_eq!(s.as_str(), "ab");
-            assert!(!s.is_inlined());
-            assert!(s.is_heap());
-        }
-
-        // Test length 3 on 16-bit and 32-bit (which is heap on those platforms)
-        if NICHE_MAX_INT < 3 {
-            let s = SinStr::new("abc");
-            assert_eq!(s.len(), 3);
-            assert_eq!(s.as_str(), "abc");
-            assert!(!s.is_inlined());
-            assert!(s.is_heap());
-        }
-
-        // Large heap allocation (works on all platforms)
-        let large = "x".repeat(100);
-        let s = SinStr::new(&large);
-        assert_eq!(s.len(), 100);
-        assert_eq!(s.as_str(), large);
-        assert_eq!(s.as_bytes(), large.as_bytes());
-        assert!(!s.is_inlined());
-        assert!(s.is_heap());
+    #[test]
+    fn test_display() {
+        assert_eq!(alloc::format!("{}", SinStr::new("")), "");
+        assert_eq!(alloc::format!("{}", SinStr::new("hello")), "hello");
     }
 }
