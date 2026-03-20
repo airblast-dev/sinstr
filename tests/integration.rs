@@ -1,4 +1,4 @@
-use sinstr::NICHE_MAX_INT;
+use sinstr::discriminant::NICHE_MAX_INT;
 use sinstr::SinStr;
 
 #[test]
