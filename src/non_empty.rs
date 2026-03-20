@@ -176,6 +176,10 @@ impl Hash for NonEmptySinStr {
 
 impl PartialEq for NonEmptySinStr {
     fn eq(&self, other: &Self) -> bool {
+        // We check storage mode first because inline strings can only hold
+        // lengths 1..=NICHE_MAX_INT while heap strings always have lengths
+        // > NICHE_MAX_INT. If storage modes differ, lengths must differ,
+        // so strings cannot be equal. This serves as a fast-path rejection.
         self.is_inlined() == other.is_inlined() && self.as_str() == other.as_str()
     }
 }
