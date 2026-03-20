@@ -125,13 +125,16 @@
 extern crate alloc;
 use alloc::alloc::{Layout, alloc, dealloc, handle_alloc_error};
 use core::{
+    borrow::{Borrow, BorrowMut},
+    convert::Infallible,
     fmt::{Debug, Display},
     hash::Hash,
     hint::assert_unchecked,
     mem::{MaybeUninit, size_of, transmute},
     num::{NonZeroU8, NonZeroUsize},
+    ops::{Deref, DerefMut},
     ptr::{self, NonNull},
-    str,
+    str::{self, FromStr},
 };
 
 mod discriminant;
@@ -331,6 +334,48 @@ impl Ord for NonEmptySinStr {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.as_str().cmp(other.as_str())
+    }
+}
+
+impl Deref for NonEmptySinStr {
+    type Target = str;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+impl DerefMut for NonEmptySinStr {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_str_mut()
+    }
+}
+
+impl AsRef<str> for NonEmptySinStr {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<[u8]> for NonEmptySinStr {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl Borrow<str> for NonEmptySinStr {
+    #[inline]
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl BorrowMut<str> for NonEmptySinStr {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut str {
+        self.as_str_mut()
     }
 }
 
@@ -580,6 +625,75 @@ impl Default for SinStr {
     #[inline(always)]
     fn default() -> Self {
         Self::EMPTY
+    }
+}
+
+impl Display for SinStr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let s = self
+            .0
+            .as_ref()
+            .map(NonEmptySinStr::as_str)
+            .unwrap_or_default();
+
+        <str as Display>::fmt(s, f)
+    }
+}
+
+impl Deref for SinStr {
+    type Target = str;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+impl DerefMut for SinStr {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_str_mut()
+    }
+}
+
+impl AsRef<str> for SinStr {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<[u8]> for SinStr {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl Borrow<str> for SinStr {
+    #[inline]
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl BorrowMut<str> for SinStr {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut str {
+        self.as_str_mut()
+    }
+}
+
+impl From<&str> for SinStr {
+    #[inline]
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+impl FromStr for SinStr {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::new(s))
     }
 }
 
