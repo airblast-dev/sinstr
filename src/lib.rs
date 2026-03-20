@@ -196,7 +196,7 @@ impl HeapRepr {
 
     /// Returns the string as a mutable slice of bytes.
     #[inline]
-    fn as_bytes_mut(&mut self) -> &mut [u8] {
+    unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         let ptr = self.as_ptr_mut();
         let len = self.len();
         unsafe { NonNull::slice_from_raw_parts(ptr.add(1).cast::<u8>(), len.get()).as_mut() }
@@ -512,7 +512,7 @@ impl NonEmptySinStr {
             unsafe { self.get_inlined_mut() }.as_bytes_mut()
         } else {
             // SAFETY: just checked that the string is not inlined
-            unsafe { self.get_heap_mut() }.as_bytes_mut()
+            unsafe { self.get_heap_mut().as_bytes_mut() }
         }
     }
 
