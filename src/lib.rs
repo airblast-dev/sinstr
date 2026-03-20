@@ -125,6 +125,8 @@
 extern crate alloc;
 use alloc::alloc::{Layout, alloc, dealloc, handle_alloc_error};
 use core::{
+    fmt::{Debug, Display},
+    hash::Hash,
     hint::assert_unchecked,
     mem::{MaybeUninit, size_of, transmute},
     num::{NonZeroU8, NonZeroUsize},
@@ -275,6 +277,61 @@ pub struct NonEmptySinStr {
     disc: DiscriminantValues,
     #[cfg(target_endian = "little")]
     data_or_partial_ptr: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
+}
+
+impl Clone for NonEmptySinStr {
+    fn clone(&self) -> Self {
+        if self.is_inlined() {
+            unsafe { Self::new_inline(self.as_str()) }
+        } else {
+            unsafe { Self::new_heap(self.as_str()) }
+        }
+    }
+
+    // TODO: implement clone_from when capacity is tracked
+}
+
+impl Debug for NonEmptySinStr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NonEmptySinStr")
+            .field("data_or_partial_ptr", &self.data_or_partial_ptr)
+            .field("disc", &self.disc)
+            .finish()
+    }
+}
+
+impl Display for NonEmptySinStr {
+    #[inline(always)]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        <str as Display>::fmt(self.as_str(), f)
+    }
+}
+
+impl Hash for NonEmptySinStr {
+    #[inline(always)]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
+}
+
+impl PartialEq for NonEmptySinStr {
+    fn eq(&self, other: &Self) -> bool {
+        self.is_inlined() == other.is_inlined() && self.as_str() == other.as_str()
+    }
+}
+impl Eq for NonEmptySinStr {}
+
+impl PartialOrd for NonEmptySinStr {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for NonEmptySinStr {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_str().cmp(other.as_str())
+    }
 }
 
 impl NonEmptySinStr {
@@ -516,9 +573,19 @@ const _: () = assert!(size_of::<Option<NonEmptySinStr>>() == size_of::<usize>())
 const _: () = assert!(size_of::<Option<NonEmptySinStr>>() >= align_of::<usize>());
 
 #[repr(transparent)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SinStr(Option<NonEmptySinStr>);
 
+impl Default for SinStr {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
 impl SinStr {
+    pub const EMPTY: Self = Self(None);
+
     #[inline]
     pub fn new(s: &str) -> Self {
         Self(NonEmptySinStr::new(s))
