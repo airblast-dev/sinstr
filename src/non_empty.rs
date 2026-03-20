@@ -473,3 +473,629 @@ impl NonEmptySinStr {
 const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<NonEmptySinStr>>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<NonEmptySinStr>>() >= align_of::<usize>());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discriminant::NICHE_MAX_INT;
+    use alloc::string::String;
+
+    fn max_inline_string() -> String {
+        "x".repeat(NICHE_MAX_INT)
+    }
+
+    fn first_heap_string() -> String {
+        "y".repeat(NICHE_MAX_INT + 1)
+    }
+
+    mod constructor {
+        use super::*;
+
+        #[test]
+        fn test_new_returns_none_for_empty() {
+            assert!(NonEmptySinStr::new("").is_none());
+        }
+
+        #[test]
+        fn test_new_inline_string() {
+            for len in 1..=NICHE_MAX_INT {
+                let s = "a".repeat(len);
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                assert!(nes.is_inlined());
+                assert!(!nes.is_heap());
+                assert_eq!(nes.len().get(), len);
+                assert_eq!(nes.as_str(), s);
+            }
+        }
+
+        #[test]
+        fn test_new_heap_string() {
+            let s = first_heap_string();
+            let nes = NonEmptySinStr::new(&s).expect("should create");
+            assert!(!nes.is_inlined());
+            assert!(nes.is_heap());
+            assert_eq!(nes.len().get(), NICHE_MAX_INT + 1);
+            assert_eq!(nes.as_str(), s);
+        }
+
+        #[test]
+        fn test_new_inline_boundary() {
+            let max_inline = max_inline_string();
+            let nes = NonEmptySinStr::new(&max_inline).expect("should create");
+            assert!(nes.is_inlined());
+
+            let first_heap = first_heap_string();
+            let nes = NonEmptySinStr::new(&first_heap).expect("should create");
+            assert!(nes.is_heap());
+        }
+    }
+
+    mod unsafe_constructors {
+        use super::*;
+
+        #[test]
+        fn test_new_inline_valid() {
+            for len in 1..=NICHE_MAX_INT {
+                let s = "x".repeat(len);
+                let nes = unsafe { NonEmptySinStr::new_inline(&s) };
+                assert!(nes.is_inlined());
+                assert_eq!(nes.as_str(), s);
+            }
+        }
+
+        #[test]
+        fn test_new_heap_valid() {
+            let s = "a".repeat(NICHE_MAX_INT + 5);
+            let nes = unsafe { NonEmptySinStr::new_heap(&s) };
+            assert!(nes.is_heap());
+            assert_eq!(nes.as_str(), s);
+        }
+    }
+
+    mod storage_mode {
+        use super::*;
+
+        #[test]
+        fn test_is_heap_inline_string() {
+            let s = "a".repeat(NICHE_MAX_INT);
+            let nes = NonEmptySinStr::new(&s).expect("should create");
+            assert!(!nes.is_heap());
+        }
+
+        #[test]
+        fn test_is_heap_heap_string() {
+            let s = first_heap_string();
+            let nes = NonEmptySinStr::new(&s).expect("should create");
+            assert!(nes.is_heap());
+        }
+
+        #[test]
+        fn test_const_is_inlined() {
+            const S: NonEmptySinStr = unsafe { NonEmptySinStr::new_inline("a") };
+            assert_eq!(S.as_str(), "a");
+            assert!(S.is_inlined());
+        }
+    }
+
+    mod content_access {
+        use super::*;
+
+        #[test]
+        fn test_len_inline() {
+            for len in 1..=NICHE_MAX_INT.min(5) {
+                let s = "x".repeat(len);
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                assert_eq!(nes.len().get(), len);
+            }
+        }
+
+        #[test]
+        fn test_len_heap() {
+            let s = "x".repeat(100);
+            let nes = NonEmptySinStr::new(&s).expect("should create");
+            assert_eq!(nes.len().get(), 100);
+        }
+
+        #[test]
+        fn test_as_str_inline() {
+            let s = "hello";
+            if NICHE_MAX_INT >= 5 {
+                let nes = NonEmptySinStr::new(s).expect("should create");
+                assert_eq!(nes.as_str(), s);
+            }
+        }
+
+        #[test]
+        fn test_as_str_heap() {
+            let s = "hello world, this is a long string";
+            let nes = NonEmptySinStr::new(s).expect("should create");
+            assert_eq!(nes.as_str(), s);
+        }
+
+        #[test]
+        fn test_as_bytes_inline() {
+            let s = "abc";
+            if NICHE_MAX_INT >= 3 {
+                let nes = NonEmptySinStr::new(s).expect("should create");
+                assert_eq!(nes.as_bytes(), s.as_bytes());
+            }
+        }
+
+        #[test]
+        fn test_as_bytes_heap() {
+            let s = "longer string on the heap";
+            let nes = NonEmptySinStr::new(s).expect("should create");
+            assert_eq!(nes.as_bytes(), s.as_bytes());
+        }
+
+        #[test]
+        fn test_as_str_mut_inline() {
+            if NICHE_MAX_INT >= 3 {
+                let mut nes = NonEmptySinStr::new("abc").expect("should create");
+                let s_mut = nes.as_str_mut();
+                assert_eq!(s_mut, "abc");
+            }
+        }
+
+        #[test]
+        fn test_as_str_mut_heap() {
+            let original = "hello world";
+            let mut nes = NonEmptySinStr::new(original).expect("should create");
+            let s_mut = nes.as_str_mut();
+            assert_eq!(s_mut, original);
+        }
+
+        #[test]
+        fn test_as_bytes_mut_inline() {
+            if NICHE_MAX_INT >= 3 {
+                let mut nes = NonEmptySinStr::new("abc").expect("should create");
+                let bytes = nes.as_bytes_mut();
+                assert_eq!(bytes, b"abc");
+            }
+        }
+
+        #[test]
+        fn test_as_bytes_mut_heap() {
+            let original = "hello world";
+            let mut nes = NonEmptySinStr::new(original).expect("should create");
+            let bytes = nes.as_bytes_mut();
+            assert_eq!(bytes, original.as_bytes());
+        }
+    }
+
+    mod unsafe_accessors {
+        use super::*;
+
+        #[test]
+        fn test_get_inlined() {
+            let s = "ab";
+            if NICHE_MAX_INT >= 2 {
+                let nes = NonEmptySinStr::new(s).expect("should create");
+                let inlined = unsafe { nes.get_inlined() };
+                assert_eq!(inlined.as_str(), s);
+            }
+        }
+
+        #[test]
+        fn test_get_inlined_mut() {
+            let s = "xy";
+            if NICHE_MAX_INT >= 2 {
+                let mut nes = NonEmptySinStr::new(s).expect("should create");
+                let inlined = unsafe { nes.get_inlined_mut() };
+                assert_eq!(inlined.as_str(), s);
+            }
+        }
+
+        #[test]
+        fn test_get_heap() {
+            let s = first_heap_string();
+            let nes = NonEmptySinStr::new(&s).expect("should create");
+            let heap = unsafe { nes.get_heap() };
+            assert_eq!(heap.as_str(), &s);
+        }
+
+        #[test]
+        fn test_get_heap_mut() {
+            let s = first_heap_string();
+            let mut nes = NonEmptySinStr::new(&s).expect("should create");
+            let heap = unsafe { nes.get_heap_mut() };
+            assert_eq!(heap.as_str(), &s);
+        }
+
+        #[test]
+        fn test_heap_repr_len() {
+            let len = NICHE_MAX_INT + 10;
+            let s = "x".repeat(len);
+            let nes = NonEmptySinStr::new(&s).expect("should create");
+            let heap = unsafe { nes.get_heap() };
+            assert_eq!(heap.len().get(), len);
+        }
+    }
+
+    mod edge_cases {
+        use super::*;
+
+        #[test]
+        fn test_unicode_inline() {
+            let unicode_chars = [("é", 2), ("日", 3), ("🦀", 4)];
+            for (c, byte_len) in unicode_chars {
+                if NICHE_MAX_INT >= byte_len {
+                    let nes = NonEmptySinStr::new(c).expect("should create");
+                    assert!(nes.is_inlined());
+                    assert_eq!(nes.as_str(), c);
+                }
+            }
+        }
+
+        #[test]
+        fn test_unicode_heap() {
+            let s = "日本語テスト";
+            let nes = NonEmptySinStr::new(s).expect("should create");
+            assert_eq!(nes.as_str(), s);
+            assert!(nes.is_heap());
+        }
+
+        #[test]
+        fn test_unicode_max_inline() {
+            if NICHE_MAX_INT >= 4 {
+                let s = "🦀".repeat(NICHE_MAX_INT / 4);
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                assert!(nes.is_inlined());
+                assert_eq!(nes.as_str(), s);
+            }
+        }
+
+        #[test]
+        fn test_very_long_heap_string() {
+            let s = "x".repeat(10000);
+            let nes = NonEmptySinStr::new(&s).expect("should create");
+            assert!(nes.is_heap());
+            assert_eq!(nes.len().get(), 10000);
+            assert_eq!(nes.as_str(), s);
+        }
+    }
+
+    mod trait_impls {
+        use super::*;
+        use alloc::borrow::Borrow;
+        use core::hash::{Hash, Hasher};
+
+        mod clone_tests {
+            use super::*;
+
+            #[test]
+            fn test_clone_inline() {
+                let s = "abc";
+                if NICHE_MAX_INT >= 3 {
+                    let nes = NonEmptySinStr::new(s).expect("should create");
+                    let cloned = nes.clone();
+                    assert_eq!(cloned.as_str(), s);
+                    assert!(cloned.is_inlined());
+                }
+            }
+
+            #[test]
+            fn test_clone_heap() {
+                let s = first_heap_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                let cloned = nes.clone();
+                assert_eq!(cloned.as_str(), &s);
+                assert!(cloned.is_heap());
+            }
+
+            #[test]
+            fn test_clone_max_inline() {
+                let s = max_inline_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                let cloned = nes.clone();
+                assert_eq!(cloned.as_str(), &s);
+                assert!(cloned.is_inlined());
+            }
+
+            #[test]
+            fn test_clone_preserves_content() {
+                let original = "hello";
+                if NICHE_MAX_INT >= 5 {
+                    let nes = NonEmptySinStr::new(original).expect("should create");
+                    let cloned = nes.clone();
+                    assert_eq!(original, cloned.as_str());
+                }
+            }
+        }
+
+        mod display_tests {
+            use super::*;
+
+            #[test]
+            fn test_display_inline() {
+                let s = "hello";
+                if NICHE_MAX_INT >= 5 {
+                    let nes = NonEmptySinStr::new(s).expect("should create");
+                    let displayed = alloc::format!("{}", nes);
+                    assert_eq!(displayed, s);
+                }
+            }
+
+            #[test]
+            fn test_display_heap() {
+                let s = first_heap_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                let displayed = alloc::format!("{}", nes);
+                assert_eq!(displayed, s);
+            }
+
+            #[test]
+            fn test_display_unicode() {
+                let s = "日本語";
+                let nes = NonEmptySinStr::new(s).expect("should create");
+                let displayed = alloc::format!("{}", nes);
+                assert_eq!(displayed, s);
+            }
+        }
+
+        mod hash_tests {
+            use super::*;
+            extern crate std;
+            use std::hash::DefaultHasher;
+
+            fn calculate_hash<T: Hash>(value: &T) -> u64 {
+                let mut hasher = DefaultHasher::new();
+                value.hash(&mut hasher);
+                hasher.finish()
+            }
+
+            #[test]
+            fn test_hash_consistency() {
+                let s = "abc";
+                if NICHE_MAX_INT >= 3 {
+                    let nes1 = NonEmptySinStr::new(s).expect("should create");
+                    let nes2 = NonEmptySinStr::new(s).expect("should create");
+                    assert_eq!(calculate_hash(&nes1), calculate_hash(&nes2));
+                }
+            }
+
+            #[test]
+            fn test_hash_different() {
+                if NICHE_MAX_INT >= 3 {
+                    let nes1 = NonEmptySinStr::new("abc").expect("should create");
+                    let nes2 = NonEmptySinStr::new("xyz").expect("should create");
+                    assert_ne!(calculate_hash(&nes1), calculate_hash(&nes2));
+                }
+            }
+
+            #[test]
+            fn test_hash_inline_vs_heap_different() {
+                let short = "ab";
+                let long_suffix = "x".repeat(NICHE_MAX_INT);
+                let content = alloc::format!("{}{}", short, long_suffix);
+
+                let nes_heap = NonEmptySinStr::new(&content).expect("should create");
+                let str_ref: &str = nes_heap.as_str();
+                let nes_inline =
+                    NonEmptySinStr::new(str_ref.get(0..2).unwrap()).expect("should create");
+
+                assert_ne!(
+                    calculate_hash(&nes_heap),
+                    calculate_hash(&nes_inline),
+                    "Different content should have different hashes"
+                );
+            }
+        }
+
+        mod eq_tests {
+            use super::*;
+
+            #[test]
+            fn test_eq_same_content_inline() {
+                let s = "test";
+                if NICHE_MAX_INT >= 4 {
+                    let a = NonEmptySinStr::new(s).expect("should create");
+                    let b = NonEmptySinStr::new(s).expect("should create");
+                    assert_eq!(a, b);
+                }
+            }
+
+            #[test]
+            fn test_eq_same_content_heap() {
+                let s = first_heap_string();
+                let a = NonEmptySinStr::new(&s).expect("should create");
+                let b = NonEmptySinStr::new(&s).expect("should create");
+                assert_eq!(a, b);
+            }
+
+            #[test]
+            fn test_ne_different_content() {
+                if NICHE_MAX_INT >= 3 {
+                    let a = NonEmptySinStr::new("abc").expect("should create");
+                    let b = NonEmptySinStr::new("xyz").expect("should create");
+                    assert_ne!(a, b);
+                }
+            }
+
+            #[test]
+            fn test_eq_inline_and_heap_same_storage_mode_check() {
+                let s1 = "a".repeat(NICHE_MAX_INT);
+                let s2 = s1.clone();
+                let a = NonEmptySinStr::new(&s1).expect("should create");
+                let b = NonEmptySinStr::new(&s2).expect("should create");
+                assert!(a.is_inlined());
+                assert!(b.is_inlined());
+                assert_eq!(a, b);
+            }
+        }
+
+        mod ord_tests {
+            use super::*;
+            use core::cmp::Ordering;
+
+            #[test]
+            fn test_ord_less() {
+                if NICHE_MAX_INT >= 2 {
+                    let a = NonEmptySinStr::new("ab").expect("should create");
+                    let b = NonEmptySinStr::new("cd").expect("should create");
+                    assert_eq!(a.cmp(&b), Ordering::Less);
+                    assert!(a < b);
+                }
+            }
+
+            #[test]
+            fn test_ord_equal() {
+                let s = "test";
+                if NICHE_MAX_INT >= 4 {
+                    let a = NonEmptySinStr::new(s).expect("should create");
+                    let b = NonEmptySinStr::new(s).expect("should create");
+                    assert_eq!(a.cmp(&b), Ordering::Equal);
+                    assert!(a <= b);
+                    assert!(a >= b);
+                }
+            }
+
+            #[test]
+            fn test_ord_greater() {
+                if NICHE_MAX_INT >= 2 {
+                    let a = NonEmptySinStr::new("yz").expect("should create");
+                    let b = NonEmptySinStr::new("ab").expect("should create");
+                    assert_eq!(a.cmp(&b), Ordering::Greater);
+                    assert!(a > b);
+                }
+            }
+
+            #[test]
+            fn test_ord_cross_storage() {
+                let short = "ab";
+                let long = "cd";
+                if NICHE_MAX_INT >= 2 && long.len() <= NICHE_MAX_INT {
+                    let a = NonEmptySinStr::new(short).expect("should create");
+                    let b = NonEmptySinStr::new(long).expect("should create");
+                    assert!(a < b);
+                }
+            }
+        }
+
+        mod deref_tests {
+            use super::*;
+
+            #[test]
+            fn test_deref_inline() {
+                let s = "hello";
+                if NICHE_MAX_INT >= 5 {
+                    let nes = NonEmptySinStr::new(s).expect("should create");
+                    assert_eq!(&*nes, s);
+                }
+            }
+
+            #[test]
+            fn test_deref_heap() {
+                let s = first_heap_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                assert_eq!(&*nes, &s);
+            }
+
+            #[test]
+            fn test_deref_methods() {
+                let s = "test";
+                if NICHE_MAX_INT >= 4 {
+                    let nes = NonEmptySinStr::new(s).expect("should create");
+                    assert_eq!(nes.len().get(), s.len());
+                    assert!(nes.starts_with("te"));
+                    assert!(nes.ends_with("st"));
+                }
+            }
+
+            #[test]
+            fn test_deref_mut_inline() {
+                if NICHE_MAX_INT >= 3 {
+                    let nes = NonEmptySinStr::new("abc").expect("should create");
+                    assert_eq!(&*nes, "abc");
+                }
+            }
+
+            #[test]
+            fn test_deref_mut_heap() {
+                let s = first_heap_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                assert_eq!(&*nes, &s);
+            }
+        }
+
+        mod as_ref_tests {
+            use super::*;
+
+            #[test]
+            fn test_as_ref_str_inline() {
+                let s = "test";
+                if NICHE_MAX_INT >= 4 {
+                    let nes = NonEmptySinStr::new(s).expect("should create");
+                    let as_str: &str = nes.as_ref();
+                    assert_eq!(as_str, s);
+                }
+            }
+
+            #[test]
+            fn test_as_ref_str_heap() {
+                let s = first_heap_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                let as_str: &str = nes.as_ref();
+                assert_eq!(as_str, &s);
+            }
+
+            #[test]
+            fn test_as_ref_bytes_inline() {
+                let s = "abc";
+                if NICHE_MAX_INT >= 3 {
+                    let nes = NonEmptySinStr::new(s).expect("should create");
+                    let as_bytes: &[u8] = nes.as_ref();
+                    assert_eq!(as_bytes, s.as_bytes());
+                }
+            }
+
+            #[test]
+            fn test_as_ref_bytes_heap() {
+                let s = first_heap_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                let as_bytes: &[u8] = nes.as_ref();
+                assert_eq!(as_bytes, s.as_bytes());
+            }
+        }
+
+        mod borrow_tests {
+            use super::*;
+
+            #[test]
+            fn test_borrow_str_inline() {
+                let s = "test";
+                if NICHE_MAX_INT >= 4 {
+                    let nes = NonEmptySinStr::new(s).expect("should create");
+                    let borrowed: &str = nes.borrow();
+                    assert_eq!(borrowed, s);
+                }
+            }
+
+            #[test]
+            fn test_borrow_str_heap() {
+                let s = first_heap_string();
+                let nes = NonEmptySinStr::new(&s).expect("should create");
+                let borrowed: &str = nes.borrow();
+                assert_eq!(borrowed, &s);
+            }
+
+            #[test]
+            fn test_borrow_mut_str_inline() {
+                let s = "abc";
+                if NICHE_MAX_INT >= 3 {
+                    let mut nes = NonEmptySinStr::new(s).expect("should create");
+                    let borrowed: &mut str = nes.borrow_mut();
+                    assert_eq!(borrowed, s);
+                }
+            }
+
+            #[test]
+            fn test_borrow_mut_str_heap() {
+                let s = first_heap_string();
+                let mut nes = NonEmptySinStr::new(&s).expect("should create");
+                let borrowed: &mut str = nes.borrow_mut();
+                assert_eq!(borrowed, &s);
+            }
+        }
+    }
+}
