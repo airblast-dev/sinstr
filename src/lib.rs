@@ -123,10 +123,10 @@
 
 #![no_std]
 extern crate alloc;
-use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use alloc::alloc::{Layout, alloc, dealloc, handle_alloc_error};
 use core::{
     hint::assert_unchecked,
-    mem::{size_of, transmute, MaybeUninit},
+    mem::{MaybeUninit, size_of, transmute},
     num::{NonZeroU8, NonZeroUsize},
     ptr::{self, NonNull},
     str,
@@ -161,12 +161,16 @@ pub struct HeapRepr(NonZeroUsize);
 impl HeapRepr {
     #[inline]
     pub fn as_ptr(&self) -> NonNull<NonZeroUsize> {
-        NonNull::with_exposed_provenance(self.0)
+        let p = NonNull::with_exposed_provenance(self.0);
+        unsafe { assert_unchecked((p.as_ptr() as usize).is_multiple_of(align_of::<usize>())) };
+        p
     }
 
     #[inline]
     pub fn as_ptr_mut(&mut self) -> NonNull<NonZeroUsize> {
-        NonNull::with_exposed_provenance(self.0)
+        let p = NonNull::with_exposed_provenance(self.0);
+        unsafe { assert_unchecked((p.as_ptr() as usize).is_multiple_of(align_of::<usize>())) };
+        p
     }
 
     /// Returns the length of the stored string.
