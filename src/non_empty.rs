@@ -312,7 +312,6 @@ impl NonEmptySinStr {
         unsafe {
             ptr.cast::<usize>().write(len);
             ptr.add(size_of::<usize>())
-                .cast::<u8>()
                 .copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut u8), len);
             // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
             transmute::<usize, NonEmptySinStr>(ptr.expose_provenance().get())
