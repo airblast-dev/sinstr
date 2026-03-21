@@ -268,7 +268,7 @@ impl NonEmptySinStr {
     #[inline]
     pub const unsafe fn new_inline(s: &str) -> Self {
         let len = s.len();
-        debug_assert!(len <= NICHE_MAX_INT && len > 0);
+        debug_assert!(len > 0 && len <= NICHE_MAX_INT);
         unsafe { assert_unchecked(len > 0 && len <= NICHE_MAX_INT) };
         let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
 
