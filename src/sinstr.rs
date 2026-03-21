@@ -146,11 +146,13 @@ impl SinStr {
     pub fn as_str_mut(&mut self) -> &mut str {
         match &mut self.0 {
             Some(r) => r.as_str_mut(),
-            r @ None => unsafe {
-                str::from_utf8_unchecked_mut(core::slice::from_raw_parts_mut(
-                    r as *mut Option<NonEmptySinStr> as *mut u8,
-                    0,
-                ))
+            None => {
+                const S: &mut str = match str::from_utf8_mut(&mut []) {
+                    Ok(s) => s,
+                    Err(_) => panic!("should never fail to create empty string at compile time"),
+                };
+
+                S
             },
         }
     }
@@ -173,9 +175,7 @@ impl SinStr {
     pub unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         match &mut self.0 {
             Some(r) => r.as_bytes_mut(),
-            r @ None => unsafe {
-                core::slice::from_raw_parts_mut(r as *mut Option<NonEmptySinStr> as *mut u8, 0)
-            },
+            None => &mut [],
         }
     }
 
