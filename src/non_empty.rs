@@ -297,6 +297,9 @@ impl NonEmptySinStr {
         debug_assert!(len > NICHE_MAX_INT);
         unsafe { assert_unchecked(len > NICHE_MAX_INT) };
         let total_size = size_of::<usize>() + len;
+        if unlikely(total_size > isize::MAX as usize) {
+            panic!("NonEmptySinStr::new_heap should never exceed max size");
+        }
         // SAFETY: align_of::<usize>() is always valid (power of 2) and total_size > 0 because len > NICHE_MAX_INT > 0
         let layout = unsafe { Layout::from_size_align_unchecked(total_size, align_of::<usize>()) };
 
