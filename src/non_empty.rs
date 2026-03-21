@@ -18,21 +18,21 @@ use crate::{
 };
 
 #[repr(C)]
-pub struct HeapRepr(NonZeroUsize);
+struct HeapRepr(NonZeroUsize);
 
 impl HeapRepr {
     #[inline]
-    pub fn as_ptr(&self) -> NonNull<NonZeroUsize> {
-        let p = NonNull::with_exposed_provenance(self.0);
-        unsafe { assert_unchecked((p.as_ptr() as usize).is_multiple_of(align_of::<usize>())) };
-        p
+    pub const fn as_ptr(&self) -> NonNull<NonZeroUsize> {
+        unsafe {
+            NonNull::new_unchecked(
+                core::ptr::with_exposed_provenance::<NonZeroUsize>(self.0.get()) as _,
+            )
+        }
     }
 
     #[inline]
-    pub fn as_ptr_mut(&mut self) -> NonNull<NonZeroUsize> {
-        let p = NonNull::with_exposed_provenance(self.0);
-        unsafe { assert_unchecked((p.as_ptr() as usize).is_multiple_of(align_of::<usize>())) };
-        p
+    pub const fn as_ptr_mut(&mut self) -> NonNull<NonZeroUsize> {
+        unsafe { NonNull::new_unchecked(core::ptr::with_exposed_provenance_mut(self.0.get())) }
     }
 
     /// Returns the length of the stored string.
@@ -40,14 +40,14 @@ impl HeapRepr {
     /// Returns a [`NonZeroUsize`] as [`HeapRepr`] is always greater than [`NICHE_MAX_INT`].
     #[allow(clippy::len_without_is_empty)]
     #[inline]
-    pub fn len(&self) -> NonZeroUsize {
+    pub const fn len(&self) -> NonZeroUsize {
         // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize
         unsafe { self.as_ptr().read() }
     }
 
     /// Returns the string as a slice of bytes.
     #[inline]
-    fn as_bytes(&self) -> &[u8] {
+    const fn as_bytes(&self) -> &[u8] {
         let ptr = self.as_ptr();
         let len = self.len();
         // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize + len bytes
@@ -56,7 +56,7 @@ impl HeapRepr {
 
     /// Returns the string as a mutable slice of bytes.
     #[inline]
-    unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
+    const unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         let ptr = self.as_ptr_mut();
         let len = self.len();
         unsafe { NonNull::slice_from_raw_parts(ptr.add(1).cast::<u8>(), len.get()).as_mut() }
@@ -64,7 +64,7 @@ impl HeapRepr {
 
     /// Returns the string as a `&str`.
     #[inline]
-    fn as_str(&self) -> &str {
+    const fn as_str(&self) -> &str {
         // SAFETY: The bytes were copied from a valid &str during construction
         // and haven't been mutated, so they remain valid UTF-8.
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
@@ -72,7 +72,7 @@ impl HeapRepr {
 
     /// Returns the string as a `&mut str`.
     #[inline]
-    fn as_str_mut(&mut self) -> &mut str {
+    const fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: The bytes were copied from a valid &str during construction.
         // The caller of as_str_mut() must preserve UTF-8 validity.
         unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
@@ -80,7 +80,7 @@ impl HeapRepr {
 }
 
 #[repr(C)]
-pub struct InlinedRepr {
+struct InlinedRepr {
     _align: [usize; 0],
     #[cfg(target_endian = "big")]
     data: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
@@ -92,29 +92,23 @@ pub struct InlinedRepr {
 impl InlinedRepr {
     /// Returns the string as a slice of bytes.
     #[inline]
-    fn as_bytes(&self) -> &[u8] {
+    const fn as_bytes(&self) -> &[u8] {
         unsafe {
-            (self.data.get_unchecked(..self.len.get() as usize) as *const [MaybeUninit<u8>]
-                as *const [u8])
-                .as_ref()
-                .unwrap_unchecked()
+            core::slice::from_raw_parts(&raw const self.data as *const u8, self.len.get() as usize)
         }
     }
 
     /// Returns the string as a mutable slice of bytes.
     #[inline]
-    fn as_bytes_mut(&mut self) -> &mut [u8] {
+    const fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
-            (self.data.get_unchecked_mut(..self.len.get() as usize) as *mut [MaybeUninit<u8>]
-                as *mut [u8])
-                .as_mut()
-                .unwrap_unchecked()
+            core::slice::from_raw_parts_mut(&raw mut self.data as *mut u8, self.len.get() as usize)
         }
     }
 
     /// Returns the string as a `&str`.
     #[inline(always)]
-    fn as_str(&self) -> &str {
+    const fn as_str(&self) -> &str {
         // SAFETY: The bytes were copied from a valid &str during construction
         // and haven't been mutated, so they remain valid UTF-8.
         unsafe { str::from_utf8_unchecked(self.as_bytes()) }
@@ -122,7 +116,7 @@ impl InlinedRepr {
 
     /// Returns the string as a `&mut str`.
     #[inline]
-    fn as_str_mut(&mut self) -> &mut str {
+    const fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: The bytes were copied from a valid &str during construction.
         // The caller of as_str_mut() must preserve UTF-8 validity.
         unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
@@ -260,6 +254,24 @@ impl NonEmptySinStr {
         })
     }
 
+    /// Create an inlined [`NonEmptySinStr`] at compile time.
+    ///
+    /// # Panics
+    ///
+    /// If the provided string is empty or longer than [`NICHE_MAX_INT`] bytes.
+    #[inline]
+    pub const fn new_const(s: &str) -> Self {
+        if s.is_empty() {
+            panic!("Cannot construct empty NonEmptySinStr");
+        }
+
+        if s.len() > NICHE_MAX_INT {
+            panic!("Cannot construct string greater than inline capacity at compile time");
+        }
+
+        unsafe { Self::new_inline(s) }
+    }
+
     /// Creates a new `SinStr` that stores data in the `SinStr` directly.
     ///
     /// # Safety
@@ -353,7 +365,7 @@ impl NonEmptySinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
-    pub unsafe fn get_heap(&self) -> &HeapRepr {
+    const unsafe fn get_heap(&self) -> &HeapRepr {
         const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
         const _: () = assert!(align_of::<NonEmptySinStr>() == align_of::<usize>());
         unsafe {
@@ -368,13 +380,9 @@ impl NonEmptySinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
-    pub unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
+    const unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
         const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
-        unsafe {
-            (self as *mut NonEmptySinStr as *mut HeapRepr)
-                .as_mut()
-                .unwrap_unchecked()
-        }
+        unsafe { transmute(self) }
     }
 
     /// Get the inline repr for the [`NonEmptySinStr`].
@@ -383,7 +391,7 @@ impl NonEmptySinStr {
     ///
     /// Caller must ensure that the string is inlined.
     #[inline(always)]
-    pub const unsafe fn get_inlined(&self) -> &InlinedRepr {
+    const unsafe fn get_inlined(&self) -> &InlinedRepr {
         // SAFETY: Self and InlinedRepr have the same layout.
         unsafe { transmute(self) }
     }
@@ -394,7 +402,7 @@ impl NonEmptySinStr {
     ///
     /// Caller must ensure that the string is inlined.
     #[inline]
-    pub unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
+    const unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
         // SAFETY: Self and InlinedRepr have the same layout.
         unsafe { transmute(self) }
     }
@@ -423,7 +431,7 @@ impl NonEmptySinStr {
 
     /// Returns the string as a `&str`.
     #[inline(always)]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         // SAFETY: just checked that the string is inlined
         if likely(self.is_inlined()) {
             unsafe { self.get_inlined() }.as_str()
@@ -435,7 +443,7 @@ impl NonEmptySinStr {
 
     /// Returns the string as a `&mut str`.
     #[inline]
-    pub fn as_str_mut(&mut self) -> &mut str {
+    pub const fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: just checked that the string is inlined
         if likely(self.is_inlined()) {
             unsafe { self.get_inlined_mut() }.as_str_mut()
