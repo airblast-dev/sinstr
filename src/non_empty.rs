@@ -129,17 +129,27 @@ impl InlinedRepr {
 pub struct NonEmptySinStr {
     _align: [usize; 0], // Zero-sized, forces usize alignment
     #[cfg(target_endian = "big")]
+    /// Depending on `len` this is the inline strings data portion or a pointer with out its least significant byte.
     data_or_partial_ptr: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
+    /// An enum with all of the possible values the least significant byte can have.
+    ///
+    /// Depending on the value; it contains the length for an inlined string or the least
+    /// significant byte for a pointer to an allocation.
     disc: DiscriminantValues,
     #[cfg(target_endian = "little")]
+    /// Depending on `len` this is the inline strings data portion or a pointer with out its least significant byte.
     data_or_partial_ptr: [MaybeUninit<u8>; size_of::<NonZeroUsize>() - 1],
 }
 
 impl Clone for NonEmptySinStr {
     fn clone(&self) -> Self {
         if self.is_inlined() {
+            // SAFETY: Since NonEmptySinStr was already constructed we know if it can fit
+            // in a `NonEmptySinStr` as inline or not.
             unsafe { Self::new_inline(self.as_str()) }
         } else {
+            // SAFETY: Since NonEmptySinStr was already constructed we know if it can fit
+            // in a `NonEmptySinStr` as inline or not. It wasn't an inline so its heap allocated.
             unsafe { Self::new_heap(self.as_str()) }
         }
     }
