@@ -102,7 +102,7 @@ impl SinStr {
     ///
     /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`] but
     /// greater than `0`.
-    #[inline]
+    #[inline(always)]
     pub const unsafe fn new_inline(s: &str) -> Self {
         Self(unsafe { Some(NonEmptySinStr::new_inline(s)) })
     }
@@ -134,7 +134,7 @@ impl SinStr {
 
     /// Returns the string as a `&str`.
     #[inline(always)]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match &self.0 {
             Some(r) => r.as_str(),
             None => "",
@@ -142,8 +142,8 @@ impl SinStr {
     }
 
     /// Returns the string as a `&mut str`.
-    #[inline]
-    pub fn as_str_mut(&mut self) -> &mut str {
+    #[inline(always)]
+    pub const fn as_str_mut(&mut self) -> &mut str {
         match &mut self.0 {
             Some(r) => r.as_str_mut(),
             None => {
@@ -153,13 +153,13 @@ impl SinStr {
                 };
 
                 S
-            },
+            }
         }
     }
 
     /// Returns the string as a slice of bytes.
     #[inline(always)]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         match &self.0 {
             Some(r) => r.as_bytes(),
             None => b"",
@@ -171,10 +171,10 @@ impl SinStr {
     /// # Safety
     ///
     /// After mutation, the bytes must remain valid UTF-8.
-    #[inline]
-    pub unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
+    #[inline(always)]
+    pub const unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         match &mut self.0 {
-            Some(r) => r.as_bytes_mut(),
+            Some(r) => unsafe { r.as_bytes_mut() },
             None => &mut [],
         }
     }

@@ -21,7 +21,7 @@ use crate::{
 struct HeapRepr(NonZeroUsize);
 
 impl HeapRepr {
-    #[inline]
+    #[inline(always)]
     pub const fn as_ptr(&self) -> NonNull<NonZeroUsize> {
         unsafe {
             NonNull::new_unchecked(
@@ -30,7 +30,7 @@ impl HeapRepr {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn as_ptr_mut(&mut self) -> NonNull<NonZeroUsize> {
         unsafe { NonNull::new_unchecked(core::ptr::with_exposed_provenance_mut(self.0.get())) }
     }
@@ -39,14 +39,14 @@ impl HeapRepr {
     ///
     /// Returns a [`NonZeroUsize`] as [`HeapRepr`] is always greater than [`NICHE_MAX_INT`].
     #[allow(clippy::len_without_is_empty)]
-    #[inline]
+    #[inline(always)]
     pub const fn len(&self) -> NonZeroUsize {
         // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize
         unsafe { self.as_ptr().read() }
     }
 
     /// Returns the string as a slice of bytes.
-    #[inline]
+    #[inline(always)]
     const fn as_bytes(&self) -> &[u8] {
         let ptr = self.as_ptr();
         let len = self.len();
@@ -55,7 +55,7 @@ impl HeapRepr {
     }
 
     /// Returns the string as a mutable slice of bytes.
-    #[inline]
+    #[inline(always)]
     const unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         let ptr = self.as_ptr_mut();
         let len = self.len();
@@ -63,7 +63,7 @@ impl HeapRepr {
     }
 
     /// Returns the string as a `&str`.
-    #[inline]
+    #[inline(always)]
     const fn as_str(&self) -> &str {
         // SAFETY: The bytes were copied from a valid &str during construction
         // and haven't been mutated, so they remain valid UTF-8.
@@ -71,7 +71,7 @@ impl HeapRepr {
     }
 
     /// Returns the string as a `&mut str`.
-    #[inline]
+    #[inline(always)]
     const fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: The bytes were copied from a valid &str during construction.
         // The caller of as_str_mut() must preserve UTF-8 validity.
@@ -91,7 +91,7 @@ struct InlinedRepr {
 
 impl InlinedRepr {
     /// Returns the string as a slice of bytes.
-    #[inline]
+    #[inline(always)]
     const fn as_bytes(&self) -> &[u8] {
         unsafe {
             core::slice::from_raw_parts(&raw const self.data as *const u8, self.len.get() as usize)
@@ -99,7 +99,7 @@ impl InlinedRepr {
     }
 
     /// Returns the string as a mutable slice of bytes.
-    #[inline]
+    #[inline(always)]
     const fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
             core::slice::from_raw_parts_mut(&raw mut self.data as *mut u8, self.len.get() as usize)
@@ -115,7 +115,7 @@ impl InlinedRepr {
     }
 
     /// Returns the string as a `&mut str`.
-    #[inline]
+    #[inline(always)]
     const fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: The bytes were copied from a valid &str during construction.
         // The caller of as_str_mut() must preserve UTF-8 validity.
@@ -169,6 +169,7 @@ impl Hash for NonEmptySinStr {
 }
 
 impl PartialEq for NonEmptySinStr {
+    #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         // We check storage mode first because inline strings can only hold
         // lengths 1..=NICHE_MAX_INT while heap strings always have lengths
@@ -238,7 +239,7 @@ impl NonEmptySinStr {
     /// Create a new [`NonEmptySinStr`]
     ///
     /// Returns [`None`] if the string is empty.
-    #[inline]
+    #[inline(always)]
     pub fn new(s: &str) -> Option<Self> {
         let len = s.len();
         if len == 0 {
@@ -259,13 +260,13 @@ impl NonEmptySinStr {
     /// # Panics
     ///
     /// If the provided string is empty or longer than [`NICHE_MAX_INT`] bytes.
-    #[inline]
+    #[inline(always)]
     pub const fn new_const(s: &str) -> Self {
-        if s.is_empty() {
+        if unlikely(s.is_empty()) {
             panic!("Cannot construct empty NonEmptySinStr");
         }
 
-        if s.len() > NICHE_MAX_INT {
+        if unlikely(s.len() > NICHE_MAX_INT) {
             panic!("Cannot construct string greater than inline capacity at compile time");
         }
 
@@ -277,7 +278,7 @@ impl NonEmptySinStr {
     /// # Safety
     ///
     /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`].
-    #[inline]
+    #[inline(always)]
     pub const unsafe fn new_inline(s: &str) -> Self {
         let len = s.len();
         debug_assert!(len > 0 && len <= NICHE_MAX_INT);
@@ -344,12 +345,12 @@ impl NonEmptySinStr {
         likely((len.wrapping_sub(1)) < NICHE_MAX_INT)
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn is_heap(&self) -> bool {
         unlikely(!self.is_inlined())
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn len(&self) -> NonZeroUsize {
         if self.is_inlined() {
             // SAFETY: is_inlined() guarantees the discriminant represents a valid
@@ -365,6 +366,7 @@ impl NonEmptySinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
+    #[inline(always)]
     const unsafe fn get_heap(&self) -> &HeapRepr {
         const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
         const _: () = assert!(align_of::<NonEmptySinStr>() == align_of::<usize>());
@@ -380,6 +382,7 @@ impl NonEmptySinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is heap allocated.
+    #[inline(always)]
     const unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
         const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
         unsafe { transmute(self) }
@@ -401,15 +404,15 @@ impl NonEmptySinStr {
     /// # Safety
     ///
     /// Caller must ensure that the string is inlined.
-    #[inline]
+    #[inline(always)]
     const unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
         // SAFETY: Self and InlinedRepr have the same layout.
         unsafe { transmute(self) }
     }
 
     /// Returns the string as a slice of bytes.
-    #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
+    #[inline(always)]
+    pub const fn as_bytes(&self) -> &[u8] {
         // SAFETY: just checked that the string is inlined
         if likely(self.is_inlined()) {
             unsafe { self.get_inlined() }.as_bytes()
@@ -419,8 +422,12 @@ impl NonEmptySinStr {
     }
 
     /// Returns the string as a mutable slice of bytes.
-    #[inline]
-    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+    ///
+    /// # Safety
+    ///
+    /// After mutation, the bytes must remain valid UTF-8.
+    #[inline(always)]
+    pub const unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         if likely(self.is_inlined()) {
             unsafe { self.get_inlined_mut() }.as_bytes_mut()
         } else {
@@ -442,7 +449,7 @@ impl NonEmptySinStr {
     }
 
     /// Returns the string as a `&mut str`.
-    #[inline]
+    #[inline(always)]
     pub const fn as_str_mut(&mut self) -> &mut str {
         // SAFETY: just checked that the string is inlined
         if likely(self.is_inlined()) {
@@ -457,7 +464,7 @@ impl NonEmptySinStr {
 impl Drop for NonEmptySinStr {
     #[inline]
     fn drop(&mut self) {
-        if self.is_heap() {
+        if unlikely(self.is_heap()) {
             // SAFETY: just checked that the string is on the heap
             unsafe { self.drop_heap() };
         }
@@ -466,6 +473,7 @@ impl Drop for NonEmptySinStr {
 
 impl NonEmptySinStr {
     #[cold]
+    #[inline(always)]
     unsafe fn drop_heap(&mut self) {
         unsafe {
             let heap = self.get_heap_mut();
@@ -660,7 +668,7 @@ mod tests {
         fn test_as_bytes_mut_inline() {
             if NICHE_MAX_INT >= 3 {
                 let mut nes = NonEmptySinStr::new("abc").expect("should create");
-                let bytes = nes.as_bytes_mut();
+                let bytes = unsafe { nes.as_bytes_mut() };
                 assert_eq!(bytes, b"abc");
             }
         }
@@ -669,7 +677,7 @@ mod tests {
         fn test_as_bytes_mut_heap() {
             let original = "hello world";
             let mut nes = NonEmptySinStr::new(original).expect("should create");
-            let bytes = nes.as_bytes_mut();
+            let bytes = unsafe { nes.as_bytes_mut() };
             assert_eq!(bytes, original.as_bytes());
         }
     }
