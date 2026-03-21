@@ -384,7 +384,7 @@ impl NonEmptySinStr {
     /// Caller must ensure that the string is inlined.
     #[inline(always)]
     pub const unsafe fn get_inlined(&self) -> &InlinedRepr {
-        // SAFETY: Self and InlinedRepr have the same size and alignment.
+        // SAFETY: Self and InlinedRepr have the same layout.
         unsafe { transmute(self) }
     }
 
@@ -395,11 +395,8 @@ impl NonEmptySinStr {
     /// Caller must ensure that the string is inlined.
     #[inline]
     pub unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
-        unsafe {
-            (self as *mut NonEmptySinStr as *mut InlinedRepr)
-                .as_mut()
-                .unwrap_unchecked()
-        }
+        // SAFETY: Self and InlinedRepr have the same layout.
+        unsafe { transmute(self) }
     }
 
     /// Returns the string as a slice of bytes.
