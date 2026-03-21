@@ -262,7 +262,8 @@ impl NonEmptySinStr {
             // SAFETY: we have ensured `s` fits in an inline string
             unsafe { Self::new_inline(s) }
         } else {
-            // SAFETY: we have ensured `s` does not fit in an inline string
+            // SAFETY: we have ensured `s` does not fit in an inline string and is not empty making
+            // it suitable for a heap string
             unsafe { Self::new_heap(s) }
         })
     }
@@ -282,6 +283,7 @@ impl NonEmptySinStr {
             panic!("Cannot construct string greater than inline capacity at compile time");
         }
 
+        // SAFETY: Preconditions for new_inline have been checked above.
         unsafe { Self::new_inline(s) }
     }
 
@@ -289,7 +291,8 @@ impl NonEmptySinStr {
     ///
     /// # Safety
     ///
-    /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`].
+    /// The length of the provided string must be less than or equal to [`NICHE_MAX_INT`] but not
+    /// `0`.
     #[inline(always)]
     pub const unsafe fn new_inline(s: &str) -> Self {
         let len = s.len();
