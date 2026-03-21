@@ -93,6 +93,7 @@ impl InlinedRepr {
     /// Returns the string as a slice of bytes.
     #[inline(always)]
     const fn as_bytes(&self) -> &[u8] {
+        // SAFETY: len field always contains the number of initialized bytes
         unsafe {
             core::slice::from_raw_parts(&raw const self.data as *const u8, self.len.get() as usize)
         }
@@ -100,7 +101,8 @@ impl InlinedRepr {
 
     /// Returns the string as a mutable slice of bytes.
     #[inline(always)]
-    const fn as_bytes_mut(&mut self) -> &mut [u8] {
+    const unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
+        // SAFETY: len field always contains the number of initialized bytes
         unsafe {
             core::slice::from_raw_parts_mut(&raw mut self.data as *mut u8, self.len.get() as usize)
         }
