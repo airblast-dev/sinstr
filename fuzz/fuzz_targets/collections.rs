@@ -28,7 +28,7 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         strings
     };
 
-    // === Hash consistency tests ===
+    // Hash consistency tests
 
     // Test: equal strings must have equal hashes
     for s in &strings {
@@ -91,7 +91,7 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         }
     }
 
-    // === HashMap tests ===
+    // HashMap tests
 
     // Test insertion and retrieval
     let mut map: HashMap<SinStr, usize> = HashMap::new();
@@ -169,7 +169,7 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         );
     }
 
-    // === HashSet tests ===
+    // HashSet tests
 
     let mut set: HashSet<SinStr> = HashSet::new();
     for s in &strings {
@@ -226,7 +226,7 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         "HashSet should be empty after removing all elements"
     );
 
-    // === BTreeMap tests ===
+    // BTreeMap tests
 
     let mut btree: BTreeMap<SinStr, usize> = BTreeMap::new();
     for (i, s) in strings.iter().enumerate() {
@@ -267,7 +267,7 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         "BTreeMap should be empty after all removals"
     );
 
-    // === BTreeSet tests ===
+    // BTreeSet tests
 
     let mut btset: BTreeSet<SinStr> = BTreeSet::new();
     for s in &strings {
@@ -307,7 +307,7 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         "BTreeSet should be empty after all removals"
     );
 
-    // === Cross-collection consistency ===
+    // Cross-collection consistency
 
     // All equal strings should behave identically in collections
     let mut hash_count = HashMap::new();
@@ -334,30 +334,137 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         );
     }
 
-    // === Stress test: rapid insert/remove cycles ===
+    // HashMap stress tests
 
+    // Test rapid insert/remove cycles
     let mut stress_map: HashMap<SinStr, usize> = HashMap::new();
     for round in 0..10 {
         for (i, s) in strings.iter().enumerate() {
-            let key = s.clone();
-
             if round % 2 == 0 {
-                stress_map.insert(key.clone(), i);
+                stress_map.insert(s.clone(), i);
             } else {
-                stress_map.remove(&key);
+                stress_map.remove(s);
             }
         }
     }
 
-    // Final state should be deterministic
+    // After 10 rounds (0-9), final state should be empty
+    // Round 9 (odd) removes all strings
+    assert!(
+        stress_map.is_empty(),
+        "HashMap should be empty after stress test"
+    );
+
+    // Test Entry API
+    let mut entry_map: HashMap<SinStr, usize> = HashMap::new();
     for s in &strings {
-        if strings[..strings.len()]
-            .iter()
-            .enumerate()
-            .position(|(i, x)| x == s && i % 2 == 0)
-            .is_some()
-        {
-            // Should be present (inserted in even rounds)
-        }
+        let count = entry_map.entry(s.clone()).or_insert(0);
+        *count += 1;
     }
+    for s in &strings {
+        assert_eq!(
+            *entry_map.get(s).unwrap(),
+            1_usize,
+            "Entry API: each unique key should have count 1"
+        );
+    }
+
+    // Test HashMap clone
+    let mut original: HashMap<SinStr, usize> = HashMap::new();
+    for (i, s) in strings.iter().enumerate() {
+        original.insert(s.clone(), i);
+    }
+    let cloned = original.clone();
+    for (key, value) in &original {
+        assert_eq!(
+            cloned.get(key),
+            Some(value),
+            "Cloned HashMap should have same values"
+        );
+    }
+    assert_eq!(
+        original.len(),
+        cloned.len(),
+        "Cloned HashMap should have same len"
+    );
+
+    // Test HashMap clear
+    let mut clear_map: HashMap<SinStr, usize> = HashMap::new();
+    for (i, s) in strings.iter().enumerate() {
+        clear_map.insert(s.clone(), i);
+    }
+    clear_map.clear();
+    assert!(clear_map.is_empty(), "HashMap should be empty after clear");
+    for s in &strings {
+        assert!(!clear_map.contains_key(s));
+    }
+
+    // Test HashMap reserve
+    let mut reserve_map: HashMap<SinStr, usize> = HashMap::new();
+    reserve_map.reserve(strings.len().max(1));
+    for (i, s) in strings.iter().enumerate() {
+        reserve_map.insert(s.clone(), i);
+    }
+    assert_eq!(reserve_map.len(), strings.len());
+
+    // Test HashMap iteration consistency
+    let mut iter_map: HashMap<SinStr, usize> = HashMap::new();
+    for (i, s) in strings.iter().enumerate() {
+        iter_map.insert(s.clone(), i);
+    }
+
+    #[allow(clippy::iter_count)]
+    let iter_count = iter_map.iter().count();
+    assert_eq!(
+        iter_count,
+        strings.len(),
+        "Iterator count should match insert count"
+    );
+    for (key, value) in iter_map.iter() {
+        assert!(
+            strings.iter().position(|s| s == key).is_some(),
+            "Iterated key should exist in strings"
+        );
+        assert!(
+            strings.iter().position(|s| s == key) == Some(*value),
+            "Iterated value should match key position"
+        );
+    }
+
+    // Test HashMap drain
+    let mut drain_map: HashMap<SinStr, usize> = HashMap::new();
+    for (i, s) in strings.iter().enumerate() {
+        drain_map.insert(s.clone(), i);
+    }
+    let drained: Vec<_> = drain_map.drain().collect();
+    assert!(drain_map.is_empty(), "HashMap should be empty after drain");
+    assert_eq!(
+        drained.len(),
+        strings.len(),
+        "Drained entries should match insert count"
+    );
+
+    // Test HashMap with capacity
+    let cap = strings.len().max(10);
+    let mut with_cap: HashMap<SinStr, usize> = HashMap::with_capacity(cap);
+    assert!(with_cap.capacity() >= cap);
+    for (i, s) in strings.iter().enumerate() {
+        with_cap.insert(s.clone(), i);
+    }
+    assert_eq!(with_cap.len(), strings.len());
+
+    // Test HashMap retain
+    let mut retain_map: HashMap<SinStr, usize> = HashMap::new();
+    for (i, s) in strings.iter().enumerate() {
+        retain_map.insert(s.clone(), i);
+    }
+    let initial_len = retain_map.len();
+    retain_map.retain(|_, v| *v % 2 == 0);
+    for (_, v) in retain_map.iter() {
+        assert_eq!(*v % 2, 0, "Retain should keep only even values");
+    }
+    assert!(
+        retain_map.len() <= initial_len,
+        "Retain should not increase size"
+    );
 });
