@@ -144,9 +144,12 @@ pub struct NonEmptySinStr {
 impl Clone for NonEmptySinStr {
     fn clone(&self) -> Self {
         if self.is_inlined() {
-            // SAFETY: Since NonEmptySinStr was already constructed we know if it can fit
-            // in a `NonEmptySinStr` as inline or not.
-            unsafe { Self::new_inline(self.as_str()) }
+            // SAFETY: An inline string is just POD - copy the bytes
+            Self {
+                _align: [],
+                disc: self.disc,
+                data_or_partial_ptr: self.data_or_partial_ptr,
+            }
         } else {
             // SAFETY: Since NonEmptySinStr was already constructed we know if it can fit
             // in a `NonEmptySinStr` as inline or not. It wasn't an inline so its heap allocated.
@@ -444,7 +447,7 @@ impl NonEmptySinStr {
     #[inline(always)]
     pub const unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         if likely(self.is_inlined()) {
-            unsafe { self.get_inlined_mut() }.as_bytes_mut()
+            unsafe { self.get_inlined_mut().as_bytes_mut() }
         } else {
             // SAFETY: just checked that the string is not inlined
             unsafe { self.get_heap_mut().as_bytes_mut() }
