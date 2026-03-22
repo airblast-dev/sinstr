@@ -19,3 +19,31 @@ path = "fuzz_targets/sinstr.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "clone_drop"
+path = "fuzz_targets/clone_drop.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "eq"
+path = "fuzz_targets/eq.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ord"
+path = "fuzz_targets/ord.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "collections"
+path = "fuzz_targets/collections.rs"
+test = false
+doc = false
+bench = false
