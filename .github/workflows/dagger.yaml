@@ -1,0 +1,2 @@
+- name: Dagger for GitHub
+  uses: dagger/dagger-for-github@v8.4.1
