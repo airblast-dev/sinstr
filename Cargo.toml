@@ -14,10 +14,10 @@ categories = ["encoding", "parsing", "memory-management", "text-processing"]
 [dependencies]
 
 [dev-dependencies]
-compact_str = "*"
+compact_str = "0.9.0"
 criterion = { version = "0.5", features = ["html_reports"] }
-smol_str = "*"
-smartstring = "*"
+smol_str = "0.3.6"
+smartstring = "1.0.1"
 
 [[bench]]
 name = "string_bench"
