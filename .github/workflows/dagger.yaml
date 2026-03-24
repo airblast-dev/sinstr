@@ -1,2 +1,11 @@
-- name: Dagger for GitHub
-  uses: dagger/dagger-for-github@v8.4.1
+
+- on:
+  - pull_request:
+    types: [opened, reopened]
+  push
+- name: Release Test
+  uses: dagger/dagger-for-github@v8.4.0
+  with:
+    module: github.com/shykes/daggerverse/hello
+    call: test-fat
+    version: "latest"  # semver vX.Y.Z
