@@ -28,7 +28,6 @@ fmt-nightly:
 	cargo +nightly fmt
 
 [env("MIRIFLAGS", "-Zmiri-permissive-provenance")]
-[env("RUSTFLAGS", "-C target-feature=-crt-static")]
 test-nightly:
 	rustup toolchain install nightly --component miri
 	cargo +nightly miri test
