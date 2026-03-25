@@ -76,7 +76,7 @@ impl HeapRepr {
     }
 
     #[inline(always)]
-    pub const fn set_len(&self, len: NonZeroUsize) {
+    pub const fn set_len(&mut self, len: NonZeroUsize) {
         // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize
         unsafe { self.as_ptr().write(len) }
     }
