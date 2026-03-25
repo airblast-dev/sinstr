@@ -21,6 +21,15 @@ use crate::{
 struct HeapRepr(NonZeroUsize);
 
 impl HeapRepr {
+    /// Checks if the provided value is a valid length for a heap string.
+    ///
+    /// If the provided value is a valid slice length (`isize::MAX`) and greater than
+    /// [`NICHE_MAX_INT`] returns `true`.
+    #[inline(always)]
+    const fn is_valid_len(len: usize) -> bool {
+        len < isize::MAX as usize && NICHE_MAX_INT < len
+    }
+
     #[inline(always)]
     pub const fn as_ptr(&self) -> NonNull<NonZeroUsize> {
         unsafe {
@@ -76,6 +85,16 @@ impl HeapRepr {
         // SAFETY: The bytes were copied from a valid &str during construction.
         // The caller of as_str_mut() must preserve UTF-8 validity.
         unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
+    }
+
+    /// Returns the total capacity of the allocation.
+    #[inline(always)]
+    const fn capacity(&self) -> NonZeroUsize {
+        unsafe {
+            NonZeroUsize::new_unchecked(next_step(
+                self.len().get().unchecked_add(size_of::<usize>()),
+            ))
+        }
     }
 }
 
@@ -299,8 +318,8 @@ impl NonEmptySinStr {
     #[inline(always)]
     pub const unsafe fn new_inline(s: &str) -> Self {
         let len = s.len();
-        debug_assert!(len > 0 && len <= NICHE_MAX_INT);
-        unsafe { assert_unchecked(len > 0 && len <= NICHE_MAX_INT) };
+        debug_assert!(!HeapRepr::is_valid_len(len));
+        unsafe { assert_unchecked(!HeapRepr::is_valid_len(len)) };
         let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
 
         // Use copy_nonoverlapping for better performance than byte-by-byte copy
@@ -325,14 +344,15 @@ impl NonEmptySinStr {
     /// The length of the provided string must be greater than [`NICHE_MAX_INT`].
     pub unsafe fn new_heap(s: &str) -> Self {
         let len = s.len();
-        debug_assert!(len > NICHE_MAX_INT);
-        unsafe { assert_unchecked(len > NICHE_MAX_INT) };
+        debug_assert!(HeapRepr::is_valid_len(len));
+        unsafe { assert_unchecked(HeapRepr::is_valid_len(len)) };
         let total_size = size_of::<usize>() + len;
         if unlikely(total_size > isize::MAX as usize) {
             panic!("NonEmptySinStr::new_heap should never exceed max size");
         }
+        let alloc_size = next_step(total_size);
         // SAFETY: align_of::<usize>() is always valid (power of 2) and total_size > 0 because len > NICHE_MAX_INT > 0
-        let layout = unsafe { Layout::from_size_align_unchecked(total_size, align_of::<usize>()) };
+        let layout = unsafe { Layout::from_size_align_unchecked(alloc_size, align_of::<usize>()) };
 
         // SAFETY: layout size > 0 because len > NICHE_MAX_INT > 0
         let Some(ptr) = NonNull::new(unsafe { alloc(layout) }) else {
@@ -496,11 +516,8 @@ impl NonEmptySinStr {
         unsafe {
             let heap = self.get_heap_mut();
             let ptr = heap.as_ptr_mut();
-            let len = heap.len();
-            let layout = Layout::from_size_align_unchecked(
-                size_of::<usize>().unchecked_add(len.get()),
-                align_of::<usize>(),
-            );
+            let layout =
+                Layout::from_size_align_unchecked(heap.capacity().get(), align_of::<usize>());
             dealloc(ptr.cast::<u8>().as_ptr(), layout)
         }
     }
@@ -510,6 +527,22 @@ impl NonEmptySinStr {
 const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<NonEmptySinStr>>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<NonEmptySinStr>>() >= align_of::<usize>());
+
+const LEN_CAP_STEP: usize = 8;
+
+#[inline(always)]
+#[track_caller]
+const fn next_step(len: usize) -> usize {
+    // fast next_multiple_of for values that are power of 2
+    const _: () = assert!(LEN_CAP_STEP.count_ones() == 1);
+    let n = if NICHE_MAX_INT < len {
+        len
+    } else {
+        const { NICHE_MAX_INT - 1 }
+    };
+
+    (n + LEN_CAP_STEP) & !(LEN_CAP_STEP - 1)
+}
 
 #[cfg(test)]
 mod tests {
@@ -1133,6 +1166,46 @@ mod tests {
                 let borrowed: &mut str = nes.borrow_mut();
                 assert_eq!(borrowed, &s);
             }
+        }
+    }
+
+    mod len_capacity {
+        use crate::non_empty::{LEN_CAP_STEP, next_step};
+
+        #[test]
+        fn forces_next_step() {
+            // 0..8
+            assert_eq!(next_step(0), LEN_CAP_STEP);
+            assert_eq!(next_step(1), LEN_CAP_STEP);
+            assert_eq!(next_step(2), LEN_CAP_STEP);
+            assert_eq!(next_step(3), LEN_CAP_STEP);
+            assert_eq!(next_step(4), LEN_CAP_STEP);
+            assert_eq!(next_step(5), LEN_CAP_STEP);
+            assert_eq!(next_step(6), LEN_CAP_STEP);
+            assert_eq!(next_step(7), LEN_CAP_STEP);
+
+            // 8..16
+            assert_eq!(next_step(8), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(9), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(10), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(11), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(12), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(13), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(14), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(15), LEN_CAP_STEP * 2);
+
+            // 16..24
+            assert_eq!(next_step(16), LEN_CAP_STEP * 3);
+            assert_eq!(next_step(17), LEN_CAP_STEP * 3);
+            assert_eq!(next_step(18), LEN_CAP_STEP * 3);
+            assert_eq!(next_step(19), LEN_CAP_STEP * 3);
+            assert_eq!(next_step(20), LEN_CAP_STEP * 3);
+            assert_eq!(next_step(21), LEN_CAP_STEP * 3);
+            assert_eq!(next_step(22), LEN_CAP_STEP * 3);
+            assert_eq!(next_step(23), LEN_CAP_STEP * 3);
+
+            // 24..
+            assert_eq!(next_step(24), LEN_CAP_STEP * 4);
         }
     }
 }
