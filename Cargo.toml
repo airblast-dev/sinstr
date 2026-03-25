@@ -1,6 +1,6 @@
 [package]
 name = "sinstr"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["Tayfun Bocek <tayfunbocek@live.ca>"]
 rust-version = "1.91"
