@@ -32,6 +32,12 @@ impl HeapRepr {
 
     #[inline(always)]
     pub const fn as_ptr(&self) -> NonNull<NonZeroUsize> {
+        // SAFETY: This can already be done safely via `NonNull::with_exposed_provenance` but it isnt
+        // const.
+        //
+        // We already satisfy requirements of NonNull since we are using NonZeroUsize
+        //
+        // https://github.com/rust-lang/rust/issues/154215
         unsafe {
             NonNull::new_unchecked(
                 core::ptr::with_exposed_provenance::<NonZeroUsize>(self.0.get()) as _,
@@ -42,6 +48,8 @@ impl HeapRepr {
     #[inline(always)]
     #[allow(unused)]
     pub const fn as_str_ptr(&mut self) -> NonNull<u8> {
+        // SAFETY: They are part of the same allocation.
+        // It cannot overflow isize.
         unsafe { self.as_ptr().add(1).cast() }
     }
 
@@ -52,6 +60,8 @@ impl HeapRepr {
 
     #[inline(always)]
     pub const fn as_str_ptr_mut(&mut self) -> NonNull<u8> {
+        // SAFETY: They are part of the same allocation.
+        // It cannot overflow isize.
         unsafe { self.as_ptr_mut().add(1).cast() }
     }
 
@@ -107,6 +117,7 @@ impl HeapRepr {
     /// Returns the total capacity of the allocation.
     #[inline(always)]
     const fn capacity(&self) -> NonZeroUsize {
+        // SAFETY: The size and capacity was already validated during initialization.
         unsafe {
             NonZeroUsize::new_unchecked(next_step(
                 self.len().get().unchecked_add(size_of::<usize>()),
@@ -118,6 +129,7 @@ impl HeapRepr {
     #[inline(always)]
     #[allow(unused)]
     const fn str_capacity(&self) -> NonZeroUsize {
+        // SAFETY: The size and capacity was already validated during initialization.
         unsafe { NonZeroUsize::new_unchecked(next_step(self.len().get())) }
     }
 }
@@ -346,7 +358,7 @@ impl NonEmptySinStr {
         unsafe { assert_unchecked(!HeapRepr::is_valid_len(len)) };
         let mut buf = [MaybeUninit::uninit(); size_of::<NonZeroUsize>() - 1];
 
-        // Use copy_nonoverlapping for better performance than byte-by-byte copy
+        // SAFETY: `len` must be less than or equal to or less than NICHE_MAX_INT but not equal to zero.
         unsafe {
             ptr::copy_nonoverlapping(s.as_ptr(), buf.as_mut_ptr().cast::<u8>(), len);
         }
@@ -419,6 +431,7 @@ impl NonEmptySinStr {
             // inline length in range 1..=NICHE_MAX_INT, which is always non-zero.
             unsafe { NonZeroUsize::new_unchecked(self.disc as usize) }
         } else {
+            // SAFETY: we just checked if we had an inline string above
             unsafe { self.get_heap() }.len()
         }
     }
@@ -432,6 +445,10 @@ impl NonEmptySinStr {
     const unsafe fn get_heap(&self) -> &HeapRepr {
         const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
         const _: () = assert!(align_of::<NonEmptySinStr>() == align_of::<usize>());
+        // SAFETY: self is a reference which is non null and HeapRepr has the same alignment as
+        // NonEmptySinStr.
+        //
+        // This is just a reference `transmute` that doesnt remove provenance.
         unsafe {
             (self as *const NonEmptySinStr as *const HeapRepr)
                 .as_ref()
@@ -447,7 +464,15 @@ impl NonEmptySinStr {
     #[inline(always)]
     const unsafe fn get_heap_mut(&mut self) -> &mut HeapRepr {
         const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
-        unsafe { transmute(self) }
+        // SAFETY: self is a reference which is non null and HeapRepr has the same alignment as
+        // NonEmptySinStr.
+        //
+        // This is just a reference `transmute` that doesnt remove provenance.
+        unsafe {
+            (self as *mut NonEmptySinStr as *mut HeapRepr)
+                .as_mut()
+                .unwrap_unchecked()
+        }
     }
 
     /// Get the inline repr for the [`NonEmptySinStr`].
@@ -457,8 +482,15 @@ impl NonEmptySinStr {
     /// Caller must ensure that the string is inlined.
     #[inline(always)]
     const unsafe fn get_inlined(&self) -> &InlinedRepr {
-        // SAFETY: Self and InlinedRepr have the same layout.
-        unsafe { transmute(self) }
+        // SAFETY: self is a reference which is non null and HeapRepr has the same alignment as
+        // NonEmptySinStr.
+        //
+        // This is just a reference `transmute` that doesnt remove provenance.
+        unsafe {
+            (self as *const NonEmptySinStr as *const InlinedRepr)
+                .as_ref()
+                .unwrap_unchecked()
+        }
     }
 
     /// Get the inline repr for the [`NonEmptySinStr`].
@@ -468,8 +500,15 @@ impl NonEmptySinStr {
     /// Caller must ensure that the string is inlined.
     #[inline(always)]
     const unsafe fn get_inlined_mut(&mut self) -> &mut InlinedRepr {
-        // SAFETY: Self and InlinedRepr have the same layout.
-        unsafe { transmute(self) }
+        // SAFETY: self is a reference which is non null and HeapRepr has the same alignment as
+        // NonEmptySinStr.
+        //
+        // This is just a reference `transmute` that doesnt remove provenance.
+        unsafe {
+            (self as *mut NonEmptySinStr as *mut InlinedRepr)
+                .as_mut()
+                .unwrap_unchecked()
+        }
     }
 
     /// Returns the string as a slice of bytes.
@@ -491,9 +530,10 @@ impl NonEmptySinStr {
     #[inline(always)]
     pub const unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         if likely(self.is_inlined()) {
+            // SAFETY: string is inlined and as_byte_mut requirements are forwarded to caller.
             unsafe { self.get_inlined_mut().as_bytes_mut() }
         } else {
-            // SAFETY: just checked that the string is not inlined
+            // SAFETY: string is not inlined and as_byte_mut requirements are forwarded to caller.
             unsafe { self.get_heap_mut().as_bytes_mut() }
         }
     }
@@ -555,9 +595,11 @@ impl NonEmptySinStr {
     pub unsafe fn set_str_unchecked(&mut self, s: &str) {
         debug_assert!(!s.is_empty());
         unsafe { assert_unchecked(!s.is_empty()) };
-        if s.len() <= NICHE_MAX_INT {
+        if likely(s.len() <= NICHE_MAX_INT) {
+            // SAFETY: `s` fits in inline storage and it isn't empty
             *self = unsafe { Self::new_inline(s) };
         } else if self.is_heap() {
+            // SAFETY: `s` does not fit in inline storage and it isn't empty
             let hp = unsafe { self.get_heap_mut() };
             let next = next_step(size_of::<usize>() + s.len());
             let capacity = hp.capacity();
@@ -570,20 +612,31 @@ impl NonEmptySinStr {
                 };
             } else {
                 let new_size = next_step(size_of::<usize>() + s.len());
-                if unlikely(new_size > isize::MAX as usize) {
-                    todo!("");
-                }
+                debug_assert!(new_size <= isize::MAX as usize);
+                // SAFETY: required by this function which is unsafe
+                unsafe { assert_unchecked(new_size <= isize::MAX as usize) };
 
+                // SAFETY:  alignment of usize is always valid and next_step returns a value that
+                // is a multiple of the alignment of usize. We also ensure that it is not greater
+                // than `isize::MAX` in the condition above.
                 let layout = unsafe {
                     Layout::from_size_align_unchecked(hp.capacity().get(), align_of::<usize>())
                 };
-                let Some(ptr) = NonNull::new(unsafe {
-                    realloc(hp.as_ptr_mut().as_ptr() as *mut u8, layout, new_size)
-                }) else {
+                let Some(ptr) = NonNull::new(
+                    // SAFETY:
+                    // - We allocated with the same Allocator
+                    // - Layout is the same
+                    // - `new_size` is never zero and is already a multiple of alignment
+                    unsafe { realloc(hp.as_ptr_mut().as_ptr() as *mut u8, layout, new_size) },
+                ) else {
                     handle_alloc_error(layout);
                 };
 
                 hp.0 = ptr.expose_provenance();
+                // SAFETY: We have allocated enough space to store `s.len()`
+                // Both pointers are guaranteed to be non-null.
+                //
+                // `s.len()` bytes are now initialized so it is safe to call `HeapRepr::set_len`
                 unsafe {
                     hp.as_str_ptr_mut()
                         .as_ptr()
@@ -592,6 +645,10 @@ impl NonEmptySinStr {
                 };
             }
         } else {
+            // SAFETY: The first branch checks if we can inline the string.
+            // If not its a heap string.
+            // (we dont use `HeapRepr::is_valid_len` as zero length strings shouldn't reach this
+            // function anyways)
             *self = unsafe { Self::new_heap(s) };
         }
     }
@@ -608,9 +665,18 @@ impl Drop for NonEmptySinStr {
 }
 
 impl NonEmptySinStr {
+    /// Deallocates the HeapRepr
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that a [`HeapRepr`] is stored in self.
     #[cold]
     #[inline(always)]
     unsafe fn drop_heap(&mut self) {
+
+        // SAFETY: we just ensured we are storing a heap string
+        // the layout is already validated during construction
+        // the pointer is always allocated with the same allocator
         unsafe {
             let heap = self.get_heap_mut();
             let ptr = heap.as_ptr_mut();
@@ -626,7 +692,7 @@ const _: () = assert!(size_of::<NonEmptySinStr>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<NonEmptySinStr>>() == size_of::<usize>());
 const _: () = assert!(size_of::<Option<NonEmptySinStr>>() >= align_of::<usize>());
 
-const LEN_CAP_STEP: usize = 8;
+const LEN_CAP_STEP: usize = align_of::<usize>();
 
 #[inline(always)]
 #[track_caller]
