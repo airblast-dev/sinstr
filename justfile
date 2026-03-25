@@ -35,3 +35,4 @@ test-nightly:
 fuzz-nightly:
 	cargo install cargo-fuzz
 	cargo +nightly fuzz run collections -- -max_total_time=120
+	cargo +nightly fuzz run sinstr -- -max_total_time=120

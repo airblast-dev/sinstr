@@ -19,3 +19,10 @@ path = "fuzz_targets/collections.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "sinstr"
+path = "fuzz_targets/sinstr.rs"
+test = false
+doc = false
+bench = false
