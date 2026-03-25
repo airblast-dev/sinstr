@@ -1,5 +1,11 @@
 # sinstr - Small Inline String
 
+[![Crates.io Version](https://img.shields.io/crates/v/sinstr)](https://crates.io/crates/sinstr)
+[![docs.rs](https://img.shields.io/docsrs/sinstr)](https://docs.rs/sinstr)
+[![Rust Version](https://img.shields.io/badge/rust-1.91+-orange.svg)](https://www.rust-lang.org)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+[![Rust Version](https://img.shields.io/badge/rust-1.91+-orange.svg)](https://www.rust-lang.org)
+
 A `no_std` string type that uses niche optimization to store short strings inline
 and longer strings on the heap. `SinStr` is guaranteed to be exactly `size_of::<usize>()`
 bytes, the same size as a pointer.
