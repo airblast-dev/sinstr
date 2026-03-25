@@ -192,6 +192,51 @@ impl SinStr {
     pub fn is_heap(&self) -> bool {
         self.0.as_ref().is_some_and(NonEmptySinStr::is_heap)
     }
+
+    /// Sets the content of [`SinStr`] to `s`.
+    ///
+    /// Allocates or deallocates if needed.
+    /// This function will attempt to reuse an existing allocation if possible so it is generally
+    /// better than reconstructing a new [`SinStr`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() + size_of::<usize>()` is greater than [`isize::MAX`].
+    #[inline(always)]
+    pub fn set_str(&mut self, s: &str) {
+        if s.is_empty() {
+            *self = Self::EMPTY;
+        } else if let Some(ref mut nes) = self.0 {
+            nes.set_str(s);
+        } else {
+            *self = Self::new(s);
+        }
+    }
+
+    /// Sets the contents of [`SinStr`] to `s`.
+    ///
+    /// Allocates or deallocates if needed.
+    /// This function will attempt to reuse an existing allocation if possible so it is generally
+    /// better than reconstructing a new [`SinStr`].
+    ///
+    /// # Safety
+    ///
+    /// The provided string must be non-empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() + size_of::<usize>()` is greater than [`isize::MAX`].
+    #[inline(always)]
+    pub unsafe fn set_str_unchecked(&mut self, s: &str) {
+        debug_assert!(!s.is_empty());
+        if let Some(ref mut nes) = self.0 {
+            // SAFETY: caller guarantees s is non-empty
+            unsafe { nes.set_str_unchecked(s) };
+        } else {
+            // SAFETY: caller guarantees s is non-empty
+            *self = unsafe { Self::new_heap(s) };
+        }
+    }
 }
 
 // Ensure SinStr and Option<SinStr> is NPO
