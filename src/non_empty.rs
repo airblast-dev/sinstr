@@ -673,7 +673,6 @@ impl NonEmptySinStr {
     #[cold]
     #[inline(always)]
     unsafe fn drop_heap(&mut self) {
-
         // SAFETY: we just ensured we are storing a heap string
         // the layout is already validated during construction
         // the pointer is always allocated with the same allocator
