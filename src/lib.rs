@@ -125,6 +125,7 @@
 extern crate alloc;
 
 pub mod discriminant;
+mod literal_macro;
 mod non_empty;
 mod sinstr;
 
