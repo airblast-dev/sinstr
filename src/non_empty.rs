@@ -1370,4 +1370,82 @@ mod tests {
             assert_eq!(next_step(24), LEN_CAP_STEP * 3);
         }
     }
+
+    mod set_str {
+        use super::*;
+
+        #[test]
+        fn test_set_str_inline_to_inline() {
+            let mut nes = NonEmptySinStr::new("abc").expect("should create");
+            nes.set_str("xyz");
+            assert!(nes.is_inlined());
+            assert_eq!(nes.as_str(), "xyz");
+        }
+
+        #[test]
+        fn test_set_str_inline_to_heap() {
+            let mut nes = NonEmptySinStr::new("abc").expect("should create");
+            let heap_str = "x".repeat(NICHE_MAX_INT + 10);
+            nes.set_str(&heap_str);
+            assert!(nes.is_heap());
+            assert_eq!(nes.as_str(), heap_str);
+        }
+
+        #[test]
+        fn test_set_str_heap_to_inline() {
+            let heap_str = "y".repeat(NICHE_MAX_INT + 10);
+            let mut nes = NonEmptySinStr::new(&heap_str).expect("should create");
+            nes.set_str("abc");
+            assert!(nes.is_inlined());
+            assert_eq!(nes.as_str(), "abc");
+        }
+
+        #[test]
+        fn test_set_str_heap_to_heap_smaller() {
+            let heap_str = "x".repeat(NICHE_MAX_INT + 100);
+            let mut nes = NonEmptySinStr::new(&heap_str).expect("should create");
+            let smaller_heap = "y".repeat(NICHE_MAX_INT + 10);
+            nes.set_str(&smaller_heap);
+            assert!(nes.is_heap());
+            assert_eq!(nes.as_str(), smaller_heap);
+        }
+
+        #[test]
+        fn test_set_str_heap_to_heap_larger() {
+            let heap_str = "x".repeat(NICHE_MAX_INT + 10);
+            let mut nes = NonEmptySinStr::new(&heap_str).expect("should create");
+            let larger_heap = "z".repeat(NICHE_MAX_INT + 100);
+            nes.set_str(&larger_heap);
+            assert!(nes.is_heap());
+            assert_eq!(nes.as_str(), larger_heap);
+        }
+
+        #[test]
+        fn test_set_str_preserves_content_max_inline() {
+            let max_inline = "a".repeat(NICHE_MAX_INT);
+            let mut nes = NonEmptySinStr::new(&max_inline).expect("should create");
+            nes.set_str(&max_inline);
+            assert!(nes.is_inlined());
+            assert_eq!(nes.as_str(), max_inline);
+        }
+
+        #[test]
+        fn test_set_str_unicode() {
+            let mut nes = NonEmptySinStr::new("日本語").expect("should create");
+            nes.set_str("中文测试");
+            assert_eq!(nes.as_str(), "中文测试");
+
+            let unicode_heap = "🦀".repeat(NICHE_MAX_INT / 4 + 10);
+            nes.set_str(&unicode_heap);
+            assert!(nes.is_heap());
+            assert_eq!(nes.as_str(), unicode_heap);
+        }
+
+        #[test]
+        #[should_panic(expected = "NonEmptySinStr::set_str recieved empty string")]
+        fn test_set_str_panic_on_empty() {
+            let mut nes = NonEmptySinStr::new("abc").expect("should create");
+            nes.set_str("");
+        }
+    }
 }
