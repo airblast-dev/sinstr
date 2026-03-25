@@ -293,4 +293,152 @@ mod tests {
         assert_eq!(alloc::format!("{}", SinStr::new("")), "");
         assert_eq!(alloc::format!("{}", SinStr::new("hello")), "hello");
     }
+
+    mod set_str_tests {
+        use super::*;
+        use crate::discriminant::NICHE_MAX_INT;
+
+        #[test]
+        fn test_set_str_empty_to_inline() {
+            let mut s = SinStr::new("");
+            s.set_str("abc");
+            assert!(s.is_inlined());
+            assert_eq!(s.as_str(), "abc");
+            assert!(!s.is_empty());
+        }
+
+        #[test]
+        fn test_set_str_empty_to_heap() {
+            let mut s = SinStr::new("");
+            let heap_str = "x".repeat(NICHE_MAX_INT + 10);
+            s.set_str(&heap_str);
+            assert!(s.is_heap());
+            assert_eq!(s.as_str(), heap_str);
+        }
+
+        #[test]
+        fn test_set_str_inline_to_empty() {
+            let mut s = SinStr::new("abc");
+            s.set_str("");
+            assert!(s.is_empty());
+            assert_eq!(s.as_str(), "");
+        }
+
+        #[test]
+        fn test_set_str_heap_to_empty() {
+            let mut s = SinStr::new(&"x".repeat(NICHE_MAX_INT + 10));
+            s.set_str("");
+            assert!(s.is_empty());
+            assert_eq!(s.as_str(), "");
+        }
+
+        #[test]
+        fn test_set_str_inline_to_inline() {
+            let mut s = SinStr::new("abc");
+            s.set_str("xyz");
+            assert!(s.is_inlined());
+            assert_eq!(s.as_str(), "xyz");
+        }
+
+        #[test]
+        fn test_set_str_inline_to_heap() {
+            let mut s = SinStr::new("abc");
+            let heap_str = "y".repeat(NICHE_MAX_INT + 10);
+            s.set_str(&heap_str);
+            assert!(s.is_heap());
+            assert_eq!(s.as_str(), heap_str);
+        }
+
+        #[test]
+        fn test_set_str_heap_to_inline() {
+            let mut s = SinStr::new(&"x".repeat(NICHE_MAX_INT + 10));
+            s.set_str("abc");
+            assert!(s.is_inlined());
+            assert_eq!(s.as_str(), "abc");
+        }
+
+        #[test]
+        fn test_set_str_heap_to_heap_smaller() {
+            let mut s = SinStr::new(&"x".repeat(NICHE_MAX_INT + 100));
+            let smaller_heap = "y".repeat(NICHE_MAX_INT + 10);
+            s.set_str(&smaller_heap);
+            assert!(s.is_heap());
+            assert_eq!(s.as_str(), smaller_heap);
+        }
+
+        #[test]
+        fn test_set_str_heap_to_heap_larger() {
+            let mut s = SinStr::new(&"x".repeat(NICHE_MAX_INT + 10));
+            let larger_heap = "z".repeat(NICHE_MAX_INT + 100);
+            s.set_str(&larger_heap);
+            assert!(s.is_heap());
+            assert_eq!(s.as_str(), larger_heap);
+        }
+
+        #[test]
+        fn test_set_str_heap_to_heap_same_size() {
+            let len = NICHE_MAX_INT + 50;
+            let mut s = SinStr::new(&"x".repeat(len));
+            let same_size = "y".repeat(len);
+            s.set_str(&same_size);
+            assert!(s.is_heap());
+            assert_eq!(s.as_str(), same_size);
+        }
+
+        #[test]
+        fn test_set_str_max_inline() {
+            let max_inline = "a".repeat(NICHE_MAX_INT);
+            let mut s = SinStr::new("");
+            s.set_str(&max_inline);
+            assert!(s.is_inlined());
+            assert_eq!(s.as_str(), max_inline);
+        }
+
+        #[test]
+        fn test_set_str_preserves_inline_boundary() {
+            let mut s = SinStr::new(&"x".repeat(NICHE_MAX_INT));
+            assert!(s.is_inlined());
+            s.set_str(&"y".repeat(NICHE_MAX_INT + 1));
+            assert!(s.is_heap());
+            s.set_str(&"z".repeat(NICHE_MAX_INT));
+            assert!(s.is_inlined());
+        }
+
+        #[test]
+        fn test_set_str_unicode_inline() {
+            let mut s = SinStr::new("");
+            s.set_str("日本語");
+            if NICHE_MAX_INT >= "日本語".len() {
+                assert!(s.is_inlined());
+            }
+            assert_eq!(s.as_str(), "日本語");
+        }
+
+        #[test]
+        fn test_set_str_unicode_heap() {
+            let mut s = SinStr::new("");
+            let unicode_heap = "🦀".repeat(NICHE_MAX_INT / 4 + 10);
+            s.set_str(&unicode_heap);
+            assert!(s.is_heap());
+            assert_eq!(s.as_str(), unicode_heap);
+        }
+
+        #[test]
+        fn test_set_str_multiple_transitions() {
+            let mut s = SinStr::new("");
+            assert!(s.is_empty());
+            s.set_str("a");
+            assert!(s.is_inlined());
+            s.set_str(&"b".repeat(NICHE_MAX_INT + 5));
+            assert!(s.is_heap());
+            s.set_str("");
+            assert!(s.is_empty());
+            s.set_str("c");
+            assert!(s.is_inlined());
+            s.set_str(&"d".repeat(NICHE_MAX_INT + 20));
+            assert!(s.is_heap());
+            s.set_str("e");
+            assert!(s.is_inlined());
+        }
+    }
 }
