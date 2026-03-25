@@ -535,13 +535,13 @@ const LEN_CAP_STEP: usize = 8;
 const fn next_step(len: usize) -> usize {
     // fast next_multiple_of for values that are power of 2
     const _: () = assert!(LEN_CAP_STEP.count_ones() == 1);
-    let n = if NICHE_MAX_INT < len {
+    let n = if NICHE_MAX_INT <= len {
         len
     } else {
-        const { NICHE_MAX_INT - 1 }
+        const { NICHE_MAX_INT }
     };
 
-    (n + LEN_CAP_STEP) & !(LEN_CAP_STEP - 1)
+    (n + LEN_CAP_STEP - 1) & !(LEN_CAP_STEP - 1)
 }
 
 #[cfg(test)]
@@ -1174,7 +1174,7 @@ mod tests {
 
         #[test]
         fn forces_next_step() {
-            // 0..8
+            // 0..=8
             assert_eq!(next_step(0), LEN_CAP_STEP);
             assert_eq!(next_step(1), LEN_CAP_STEP);
             assert_eq!(next_step(2), LEN_CAP_STEP);
@@ -1183,9 +1183,9 @@ mod tests {
             assert_eq!(next_step(5), LEN_CAP_STEP);
             assert_eq!(next_step(6), LEN_CAP_STEP);
             assert_eq!(next_step(7), LEN_CAP_STEP);
+            assert_eq!(next_step(8), LEN_CAP_STEP);
 
-            // 8..16
-            assert_eq!(next_step(8), LEN_CAP_STEP * 2);
+            // 9..=16
             assert_eq!(next_step(9), LEN_CAP_STEP * 2);
             assert_eq!(next_step(10), LEN_CAP_STEP * 2);
             assert_eq!(next_step(11), LEN_CAP_STEP * 2);
@@ -1193,9 +1193,9 @@ mod tests {
             assert_eq!(next_step(13), LEN_CAP_STEP * 2);
             assert_eq!(next_step(14), LEN_CAP_STEP * 2);
             assert_eq!(next_step(15), LEN_CAP_STEP * 2);
+            assert_eq!(next_step(16), LEN_CAP_STEP * 2);
 
-            // 16..24
-            assert_eq!(next_step(16), LEN_CAP_STEP * 3);
+            // 17..=24
             assert_eq!(next_step(17), LEN_CAP_STEP * 3);
             assert_eq!(next_step(18), LEN_CAP_STEP * 3);
             assert_eq!(next_step(19), LEN_CAP_STEP * 3);
@@ -1203,9 +1203,7 @@ mod tests {
             assert_eq!(next_step(21), LEN_CAP_STEP * 3);
             assert_eq!(next_step(22), LEN_CAP_STEP * 3);
             assert_eq!(next_step(23), LEN_CAP_STEP * 3);
-
-            // 24..
-            assert_eq!(next_step(24), LEN_CAP_STEP * 4);
+            assert_eq!(next_step(24), LEN_CAP_STEP * 3);
         }
     }
 }
