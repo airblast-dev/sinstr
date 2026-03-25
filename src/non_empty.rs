@@ -10,7 +10,7 @@ use core::{
     ptr::{self, NonNull},
 };
 
-use alloc::alloc::{alloc, dealloc, handle_alloc_error};
+use alloc::alloc::{alloc, dealloc, handle_alloc_error, realloc};
 
 use crate::{
     discriminant::{DiscriminantValues, NICHE_MAX_INT},
@@ -40,8 +40,19 @@ impl HeapRepr {
     }
 
     #[inline(always)]
+    #[allow(unused)]
+    pub const fn as_str_ptr(&mut self) -> NonNull<u8> {
+        unsafe { self.as_ptr().add(1).cast() }
+    }
+
+    #[inline(always)]
     pub const fn as_ptr_mut(&mut self) -> NonNull<NonZeroUsize> {
         unsafe { NonNull::new_unchecked(core::ptr::with_exposed_provenance_mut(self.0.get())) }
+    }
+
+    #[inline(always)]
+    pub const fn as_str_ptr_mut(&mut self) -> NonNull<u8> {
+        unsafe { self.as_ptr_mut().add(1).cast() }
     }
 
     /// Returns the length of the stored string.
@@ -52,6 +63,12 @@ impl HeapRepr {
     pub const fn len(&self) -> NonZeroUsize {
         // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize
         unsafe { self.as_ptr().read() }
+    }
+
+    #[inline(always)]
+    pub const fn set_len(&self, len: NonZeroUsize) {
+        // SAFETY: pointer is always non null and properly aligned with enough provenance to read a usize
+        unsafe { self.as_ptr().write(len) }
     }
 
     /// Returns the string as a slice of bytes.
@@ -95,6 +112,13 @@ impl HeapRepr {
                 self.len().get().unchecked_add(size_of::<usize>()),
             ))
         }
+    }
+
+    /// Returns the total capacity of the allocation.
+    #[inline(always)]
+    #[allow(unused)]
+    const fn str_capacity(&self) -> NonZeroUsize {
+        unsafe { NonZeroUsize::new_unchecked(next_step(self.len().get())) }
     }
 }
 
@@ -495,6 +519,80 @@ impl NonEmptySinStr {
         } else {
             // SAFETY: just checked that the string is not inlined
             unsafe { self.get_heap_mut() }.as_str_mut()
+        }
+    }
+
+    /// Sets the content of [`NonEmptySinStr`] to `s`.
+    ///
+    /// # Panics
+    ///
+    /// The provided string must be non-empty.
+    /// Panics if `s.len() + size_of::<usize>()` is greated than [`isize::MAX`].
+    #[inline(always)]
+    pub fn set_str(&mut self, s: &str) {
+        if unlikely(s.is_empty()) {
+            panic!("NonEmptySinStr::set_str recieved empty string");
+        }
+
+        // SAFETY: we have checked that `s` isn't empty.
+        unsafe { self.set_str_unchecked(s) };
+    }
+
+    /// Sets the contents of [`NonEmptySinStr`] to `s`.
+    ///
+    /// Allocates or deallocates if needed.
+    /// This function will attempt to reuse an existing if possible so it is generally better than
+    /// reconstructing a new [`NonEmptySinStr`].
+    ///
+    /// # Safety
+    ///
+    /// The provided string must be non-empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() + size_of::<usize>()` is greated than [`isize::MAX`].
+    #[inline(always)]
+    pub unsafe fn set_str_unchecked(&mut self, s: &str) {
+        debug_assert!(!s.is_empty());
+        unsafe { assert_unchecked(!s.is_empty()) };
+        if s.len() <= NICHE_MAX_INT {
+            *self = unsafe { Self::new_inline(s) };
+        } else if self.is_heap() {
+            let hp = unsafe { self.get_heap_mut() };
+            let next = next_step(size_of::<usize>() + s.len());
+            let capacity = hp.capacity();
+            if capacity.get() == next {
+                unsafe {
+                    hp.set_len(NonZeroUsize::new_unchecked(s.len()));
+                    hp.as_str_ptr_mut()
+                        .as_ptr()
+                        .copy_from_nonoverlapping(s.as_ptr(), s.len());
+                };
+            } else {
+                let new_size = next_step(size_of::<usize>() + s.len());
+                if unlikely(new_size > isize::MAX as usize) {
+                    todo!("");
+                }
+
+                let layout = unsafe {
+                    Layout::from_size_align_unchecked(hp.capacity().get(), align_of::<usize>())
+                };
+                let Some(ptr) = NonNull::new(unsafe {
+                    realloc(hp.as_ptr_mut().as_ptr() as *mut u8, layout, new_size)
+                }) else {
+                    handle_alloc_error(layout);
+                };
+
+                hp.0 = ptr.expose_provenance();
+                unsafe {
+                    hp.as_str_ptr_mut()
+                        .as_ptr()
+                        .copy_from_nonoverlapping(s.as_ptr(), s.len());
+                    hp.set_len(NonZeroUsize::new_unchecked(s.len()));
+                };
+            }
+        } else {
+            *self = unsafe { Self::new_heap(s) };
         }
     }
 }
