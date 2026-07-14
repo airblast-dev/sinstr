@@ -27,6 +27,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@just
       - run: just test-stable test-nightly
+  test-msrv:
+    name: Test-MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: taiki-e/install-action@just
+      - run: just test-stable
 
   fmt:
     name: Rustfmt

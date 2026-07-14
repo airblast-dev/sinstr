@@ -23,7 +23,7 @@ type Sinstr struct{}
 
 
 
-func (m *Sinstr) TestFat(ctx context.Context, 
+func (m *Sinstr) TestLatestFat(ctx context.Context, 
 // +defaultPath="/"
 src *dagger.Directory) (string, error) {
 	return dag.Container().
@@ -32,5 +32,17 @@ src *dagger.Directory) (string, error) {
 		WithMountedDirectory("/mnt", src).
 		WithWorkdir("/mnt").
 		WithExec([]string{"just", "all"}).
+		Stdout(ctx)
+}
+
+func(m *Sinstr)TestMSRVFat(ctx context.Context,
+// +defaultPath="/"
+src *dagger.Directory) (string, error) {
+	return dag.Container().
+		From("rust:1.88").
+		WithExec([]string{"cargo", "install", "just@1.53.0"}).
+		WithMountedDirectory("/mnt", src).
+		WithWorkdir("/mnt").
+		WithExec([]string{"just", "all-stable"}).
 		Stdout(ctx)
 }

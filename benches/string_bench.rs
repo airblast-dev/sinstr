@@ -2,7 +2,6 @@ use compact_str::CompactString;
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use sinstr::SinStr;
 use smartstring::{Compact, LazyCompact, SmartString};
-use smol_str::SmolStr;
 use std::time::Duration;
 
 const TEST_STRING_INLINE: &str = "test";
@@ -78,7 +77,6 @@ fn bench_new(c: &mut Criterion, name: &str, test_str: &'static str) {
         group,
         CompactString::new(black_box(test_str))
     );
-    bench_new!("SmolStr", group, SmolStr::new(black_box(test_str)));
     bench_new!(
         "SmartString<Compact>",
         group,
@@ -98,7 +96,6 @@ fn bench_as_str(c: &mut Criterion, name: &str, test_str: &'static str) {
     let string: String = String::from(test_str);
     let box_str: Box<str> = Box::from(test_str);
     let compact = CompactString::new(test_str);
-    let smolstr = SmolStr::new(test_str);
     let smartstring_lazy = SmartString::<LazyCompact>::from(test_str);
     let smartstring_compact = SmartString::<Compact>::from(test_str);
     let sinstr = SinStr::new(test_str);
@@ -106,7 +103,6 @@ fn bench_as_str(c: &mut Criterion, name: &str, test_str: &'static str) {
     bench_as_str!("String", group, string, as_str);
     bench_as_str!("Box<str>", group, box_str, as_ref);
     bench_as_str!("CompactString", group, compact, as_str);
-    bench_as_str!("SmolStr", group, smolstr, as_str);
     bench_as_str!("SmartString<LazyCompact>", group, smartstring_lazy, as_str);
     bench_as_str!("SmartString<Compact>", group, smartstring_compact, as_str);
     bench_as_str!("SinStr", group, sinstr, as_str);
@@ -120,7 +116,6 @@ fn bench_vec_iterate(c: &mut Criterion, name: &str, test_str: &'static str, coun
     let vec_box_str: Vec<Box<str>> = (0..count).map(|_| Box::from(test_str)).collect();
     let vec_compact: Vec<CompactString> =
         (0..count).map(|_| CompactString::new(test_str)).collect();
-    let vec_smolstr: Vec<SmolStr> = (0..count).map(|_| SmolStr::new(test_str)).collect();
     let vec_smartstring_lazy: Vec<SmartString<LazyCompact>> =
         (0..count).map(|_| SmartString::from(test_str)).collect();
     let vec_smartstring_compact: Vec<SmartString<LazyCompact>> =
@@ -130,7 +125,6 @@ fn bench_vec_iterate(c: &mut Criterion, name: &str, test_str: &'static str, coun
     bench_vec_iterate!("String", group, vec_string, as_str);
     bench_vec_iterate!("Box<str>", group, vec_box_str, as_ref);
     bench_vec_iterate!("CompactString", group, vec_compact, as_str);
-    bench_vec_iterate!("SmolStr", group, vec_smolstr, as_str);
     bench_vec_iterate!(
         "SmartString<Compact>",
         group,
@@ -148,7 +142,6 @@ fn bench_clone(c: &mut Criterion, name: &str, test_str: &'static str) {
     let string: String = String::from(test_str);
     let box_str: Box<str> = Box::from(test_str);
     let compact = CompactString::new(test_str);
-    let smolstr = SmolStr::new(test_str);
     let smartstring_lazy = SmartString::<LazyCompact>::from(test_str);
     let smartstring_compact = SmartString::<Compact>::from(test_str);
     let sinstr = SinStr::new(test_str);
@@ -156,7 +149,6 @@ fn bench_clone(c: &mut Criterion, name: &str, test_str: &'static str) {
     bench_clone!("String", group, &string);
     bench_clone!("Box<str>", group, &box_str);
     bench_clone!("CompactString", group, &compact);
-    bench_clone!("SmolStr", group, &smolstr);
     bench_clone!("SmartString<LazyCompact>", group, &smartstring_lazy);
     bench_clone!("SmartString<Compact>", group, &smartstring_compact);
     bench_clone!("SinStr", group, &sinstr);
@@ -171,8 +163,6 @@ fn bench_eq(c: &mut Criterion, name: &str, test_str: &'static str) {
     let box_str2: Box<str> = Box::from(test_str);
     let compact1 = CompactString::new(test_str);
     let compact2 = CompactString::new(test_str);
-    let smolstr1 = SmolStr::new(test_str);
-    let smolstr2 = SmolStr::new(test_str);
     let smartstring_lazy1 = SmartString::<LazyCompact>::from(test_str);
     let smartstring_lazy2 = SmartString::<LazyCompact>::from(test_str);
     let smartstring_compact1 = SmartString::<Compact>::from(test_str);
@@ -183,7 +173,6 @@ fn bench_eq(c: &mut Criterion, name: &str, test_str: &'static str) {
     bench_eq!("String", group, &string1, &string2);
     bench_eq!("Box<str>", group, &box_str1, &box_str2);
     bench_eq!("CompactString", group, &compact1, &compact2);
-    bench_eq!("SmolStr", group, &smolstr1, &smolstr2);
     bench_eq!(
         "SmartString<LazyCompact>",
         group,
@@ -223,7 +212,6 @@ fn bench_drop(c: &mut Criterion, name: &str, test_str: &'static str) {
         group,
         CompactString::new(black_box(test_str))
     );
-    bench_drop!("SmolStr", group, SmolStr::new(black_box(test_str)));
     bench_drop!(
         "SmartString<Compact>",
         group,

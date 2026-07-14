@@ -38,11 +38,7 @@ impl HeapRepr {
         // We already satisfy requirements of NonNull since we are using NonZeroUsize
         //
         // https://github.com/rust-lang/rust/issues/154215
-        unsafe {
-            NonNull::new_unchecked(
-                core::ptr::with_exposed_provenance::<NonZeroUsize>(self.0.get()) as _,
-            )
-        }
+        unsafe { NonNull::new_unchecked(self.0.get() as *mut _) }
     }
 
     #[inline(always)]
@@ -55,7 +51,7 @@ impl HeapRepr {
 
     #[inline(always)]
     pub const fn as_ptr_mut(&mut self) -> NonNull<NonZeroUsize> {
-        unsafe { NonNull::new_unchecked(core::ptr::with_exposed_provenance_mut(self.0.get())) }
+        unsafe { NonNull::new_unchecked(self.0.get() as *mut _) }
     }
 
     #[inline(always)]
@@ -401,7 +397,7 @@ impl NonEmptySinStr {
             ptr.add(size_of::<usize>())
                 .copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut u8), len);
             // SAFETY: Repr is #[repr(C)] and exactly size_of::<usize>() bytes.
-            transmute::<usize, NonEmptySinStr>(ptr.expose_provenance().get())
+            transmute::<usize, NonEmptySinStr>(ptr.as_ptr().expose_provenance())
         }
     }
 
@@ -632,7 +628,9 @@ impl NonEmptySinStr {
                     handle_alloc_error(layout);
                 };
 
-                hp.0 = ptr.expose_provenance();
+                // SAFETY: ptr is already non-null we need to do this to support older rust versions
+                // where Nonnull provenance API is not const
+                hp.0 = unsafe { NonZeroUsize::new_unchecked(ptr.as_ptr().expose_provenance()) };
                 // SAFETY: We have allocated enough space to store `s.len()`
                 // Both pointers are guaranteed to be non-null.
                 //
