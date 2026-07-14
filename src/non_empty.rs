@@ -124,17 +124,16 @@ impl HeapRepr {
         }
     }
 
-    #[inline(always)]
-    const fn unused_capacity(&self) -> usize {
-        self.capacity().get() - (size_of::<usize>() + self.len().get())
-    }
-
     /// Returns the total capacity of the allocation.
     #[inline(always)]
-    #[allow(unused)]
     const fn str_capacity(&self) -> NonZeroUsize {
         // SAFETY: The size and capacity was already validated during initialization.
-        unsafe { NonZeroUsize::new_unchecked(next_step(self.len().get())) }
+        unsafe { NonZeroUsize::new_unchecked(self.capacity().get() - size_of::<usize>()) }
+    }
+
+    #[inline(always)]
+    const fn unused_str_capacity(&self) -> usize {
+        self.str_capacity().get() - self.len().get()
     }
 
     // # SAFETY
@@ -161,15 +160,15 @@ impl HeapRepr {
 
     #[inline]
     fn push_str(&mut self, s: &str) {
-        let cur_len = self.len();
-        if self.unused_capacity() >= s.len() {
+        let cur_len = self.len().get();
+        if self.unused_str_capacity() >= s.len() {
             // SAFETY: We already have enough capacity, just copy the bytes over and update the length
             unsafe {
                 self.as_str_ptr_mut()
                     .add(self.len().get())
                     .as_ptr()
                     .copy_from_nonoverlapping(s.as_ptr(), s.len());
-                self.as_ptr().cast().write(cur_len.get() + s.len());
+                self.as_ptr().cast().write(cur_len + s.len());
             };
             return;
         }
@@ -177,12 +176,12 @@ impl HeapRepr {
             // SAFETY: We update the length value right after this call
             self.grow_capacity(s.len());
             // SAFETY: Grow capacity already ensures this is a valid size
-            self.as_ptr().cast().write(cur_len.get() + s.len());
+            self.as_ptr().cast().write(cur_len + s.len());
             // SAFETY: We already allocated the required space which means this addition results in valid memory and does not overflow
-            let ptr = self.as_str_ptr_mut().add(self.len().get());
+            let ptr = self.as_str_ptr_mut().add(cur_len);
             // SAFETY: We have grown to have enough space above copy over the bytes to the uninitialized
             // section
-            ptr.copy_from_nonoverlapping(NonNull::from(&s.as_bytes()[0]), s.len())
+            ptr.as_ptr().copy_from_nonoverlapping(s.as_ptr(), s.len())
         };
     }
 }
