@@ -124,6 +124,8 @@
 #![no_std]
 extern crate alloc;
 
+#[cfg(feature="serde")]
+mod serde;
 pub mod discriminant;
 mod literal_macro;
 mod non_empty;

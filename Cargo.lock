@@ -477,6 +477,7 @@ version = "0.4.1"
 dependencies = [
  "compact_str",
  "criterion",
+ "serde",
  "smartstring",
 ]
 
