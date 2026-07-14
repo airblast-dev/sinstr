@@ -10,7 +10,10 @@ use core::{
     ptr::{self, NonNull},
 };
 
-use alloc::alloc::{alloc, dealloc, handle_alloc_error, realloc};
+use alloc::{
+    alloc::{alloc, dealloc, handle_alloc_error, realloc},
+    string::ToString,
+};
 
 use crate::{
     discriminant::{DiscriminantValues, NICHE_MAX_INT},
@@ -121,12 +124,66 @@ impl HeapRepr {
         }
     }
 
+    #[inline(always)]
+    const fn unused_capacity(&self) -> usize {
+        self.capacity().get() - (size_of::<usize>() + self.len().get())
+    }
+
     /// Returns the total capacity of the allocation.
     #[inline(always)]
     #[allow(unused)]
     const fn str_capacity(&self) -> NonZeroUsize {
         // SAFETY: The size and capacity was already validated during initialization.
         unsafe { NonZeroUsize::new_unchecked(next_step(self.len().get())) }
+    }
+
+    // # SAFETY
+    //
+    // Caller must update the length of the string as soon as this function returns.
+    // Any other operation on the string until the length is updated may cause Undefined Behavior.
+    #[inline]
+    unsafe fn grow_capacity(&mut self, by: usize) {
+        let capacity = self.capacity().get();
+        // SAFETY: We already know this is a valid layout as we previously created it.
+        let layout = unsafe { Layout::from_size_align_unchecked(capacity, align_of::<usize>()) };
+        let new_capacity = next_step(capacity + by);
+        assert!(Self::is_valid_len(new_capacity));
+        // SAFETY: We allocated the same layout and the new capacity is less than or equal to
+        // isize::MAX.
+        let Some(p) =
+            NonNull::new(unsafe { realloc(self.as_ptr().cast().as_ptr(), layout, new_capacity) })
+        else {
+            handle_alloc_error(layout);
+        };
+
+        self.0 = p.addr();
+    }
+
+    #[inline]
+    fn push_str(&mut self, s: &str) {
+        let cur_len = self.len();
+        if self.unused_capacity() >= s.len() {
+            // SAFETY: We already have enough capacity, just copy the bytes over and update the length
+            unsafe {
+                self.as_str_ptr_mut()
+                    .add(self.len().get())
+                    .as_ptr()
+                    .copy_from_nonoverlapping(s.as_ptr(), s.len());
+                self.as_ptr().cast().write(cur_len.get() + s.len());
+            };
+            return;
+        }
+        unsafe {
+            // SAFETY: We update the length value right after this call
+            self.grow_capacity(s.len());
+            // SAFETY: Grow capacity already ensures this is a valid size
+            self.as_ptr().cast().write(cur_len.get() + s.len());
+            // SAFETY: We already allocated the required space which means this addition results in valid memory and does not overflow
+            let ptr = self.as_str_ptr_mut().add(self.len().get());
+            // SAFETY: We have grown to have enough space above copy over the bytes to the uninitialized
+            // section
+            ptr.copy_from_nonoverlapping(NonNull::from(&s.as_bytes()[0]), s.len())
+        };
     }
 }
 
@@ -648,6 +705,37 @@ impl NonEmptySinStr {
             // (we dont use `HeapRepr::is_valid_len` as zero length strings shouldn't reach this
             // function anyways)
             *self = unsafe { Self::new_heap(s) };
+        }
+    }
+
+    pub fn push_str(&mut self, s: &str) {
+        let len = self.len().get();
+        if s.is_empty() {
+            return;
+        }
+        let new_len = len + s.len();
+        if new_len <= NICHE_MAX_INT {
+            // SAFETY: we have enough space for s.len bytes, just append them to the end
+            // SAFETY: transmute between &[u8] and &[MaybeUninit<u8>] is always safe
+            unsafe {
+                self.data_or_partial_ptr[len..len + s.len()].copy_from_slice(transmute::<
+                    &[u8],
+                    &[MaybeUninit<u8>],
+                >(
+                    s.as_bytes()
+                ));
+                // SAFETY: 0..=NICHE_MAX_INT is always a valid discriminant
+                self.disc = transmute::<u8, DiscriminantValues>(new_len as u8);
+            }
+        } else {
+            if self.is_heap() {
+                // SAFETY: Just checked if we have a heap variant above
+                unsafe { self.get_heap_mut() }.push_str(s);
+            } else {
+                // TODO: We should preallocate enough space instead of using an intermediate allocation
+                // SAFETY: We already validated the size for constructing a heap variant
+                *self = unsafe { Self::new_heap(&(self.as_str().to_string() + s)) };
+            }
         }
     }
 }
@@ -1443,6 +1531,32 @@ mod tests {
         fn test_set_str_panic_on_empty() {
             let mut nes = NonEmptySinStr::new("abc").expect("should create");
             nes.set_str("");
+        }
+    }
+
+    mod push_str {
+        use crate::NonEmptySinStr;
+
+        #[test]
+        fn test_push_str_on_inline_to_inline() {
+            let mut nes = NonEmptySinStr::new("a").expect("should create");
+            nes.push_str("b");
+            nes.push_str("c");
+            assert_eq!("abc", nes.as_str())
+        }
+
+        #[test]
+        fn test_push_str_on_inline_to_heap() {
+            let mut nes = NonEmptySinStr::new("abc").expect("should create");
+            nes.push_str("LongTextOverHere");
+            assert_eq!("abcLongTextOverHere", nes.as_str());
+        }
+
+        #[test]
+        fn test_push_str_on_heap_to_heap() {
+            let mut nes = NonEmptySinStr::new("HELLLOOOOOOOOOOOOOO").expect("should create");
+            nes.push_str("Epic");
+            assert_eq!("HELLLOOOOOOOOOOOOOOEpic", nes.as_str());
         }
     }
 }

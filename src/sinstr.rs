@@ -246,6 +246,14 @@ impl SinStr {
             *self = unsafe { Self::new_heap(s) };
         }
     }
+
+    pub fn push_str(&mut self, s: &str) {
+        if let Some(inner) = &mut self.0 {
+            inner.push_str(s);
+        } else {
+            *self = Self::new(s);
+        }
+    }
 }
 
 // Ensure SinStr and Option<SinStr> is NPO
