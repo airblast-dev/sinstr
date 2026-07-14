@@ -96,6 +96,15 @@ impl SinStr {
         Self(NonEmptySinStr::new(s))
     }
 
+    #[inline]
+    pub const fn new_const(s: &str) -> Self {
+        if s.is_empty() {
+            Self(None)
+        } else {
+            Self(Some(NonEmptySinStr::new_const(s)))
+        }
+    }
+
     /// Creates a new `SinStr` that stores data in the `SinStr` directly.
     ///
     /// # Safety
