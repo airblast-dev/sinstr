@@ -35,7 +35,7 @@ src *dagger.Directory) (string, error) {
 		Stdout(ctx)
 }
 
-func(m *Sinstr)TestMSRVFat(ctx context.Context,
+func(m *Sinstr)TestMSRV_Fat(ctx context.Context,
 // +defaultPath="/"
 src *dagger.Directory) (string, error) {
 	return dag.Container().
